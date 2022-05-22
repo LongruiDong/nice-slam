@@ -1,6 +1,6 @@
 import glob
 import os
-
+# -*- coding:utf-8 -*-
 import cv2
 import numpy as np
 import torch
@@ -148,6 +148,7 @@ class Azure(BaseDataset):
         self.n_img = len(self.color_paths)
         self.load_poses(os.path.join(
             self.input_folder, 'scene', 'trajectory.log'))
+        self.plot_traj()
 
     def load_poses(self, path):
         self.poses = []
@@ -176,6 +177,27 @@ class Azure(BaseDataset):
                 c2w = np.eye(4)
                 c2w = torch.from_numpy(c2w).float()
                 self.poses.append(c2w)
+    
+    # 也画出轨迹 想看看bound to do
+    def plot_traj(self):
+        self.trajzx = []
+        for i in range(len(self.poses)):
+            c2w = self.poses[i].numpy()
+            self.trajzx.append([c2w[0,3], c2w[1,3], c2w[2,3]]) # (x,y,z)
+        traj = np.array(self.trajzx) # n,3
+        # 输出 xyz 的区域
+        print('x y z min:\n', traj.min(axis=0))
+        print('x y z max:\n', traj.max(axis=0))
+        import matplotlib.pyplot as plt
+        fig = plt.figure()
+        plt.plot(traj[:,0],traj[:,2], linestyle='dashed',c='k') # x,z
+        plt.xlabel('x (m)')
+        plt.ylabel('z (m)')
+        plt.legend(['Ground Truth'])
+        plt.axis('equal')
+        savefigname = os.path.join(self.input_folder, 'gtwnerf.pdf')    
+        plt.savefig(savefigname)
+        plt.close(fig)
 
 
 class ScanNet(BaseDataset):
@@ -222,7 +244,7 @@ class CoFusion(BaseDataset):
 
     def load_poses(self, path):
         # We tried, but cannot align the coordinate frame of cofusion to ours.
-        # So here we provide identity matrix as proxy.
+        # So here we provide identity matrix as proxy. ?? 相机没动？
         # But it will not affect the calculation of ATE since camera trajectories can be aligned.
         self.poses = []
         for i in range(self.n_img):
@@ -299,11 +321,11 @@ class TUM_RGBD(BaseDataset):
             images += [os.path.join(datapath, image_data[i, 1])]
             depths += [os.path.join(datapath, depth_data[j, 1])]
             c2w = self.pose_matrix_from_quaternion(pose_vecs[k])
-            if inv_pose is None:
-                inv_pose = np.linalg.inv(c2w)
+            if inv_pose is None: # 首帧位姿归I 但是好像只有tum做了归一化处理 why
+                inv_pose = np.linalg.inv(c2w) #T0w
                 c2w = np.eye(4)
             else:
-                c2w = inv_pose@c2w
+                c2w = inv_pose@c2w # T0w Twi = T0i
             c2w[:3, 1] *= -1
             c2w[:3, 2] *= -1
             c2w = torch.from_numpy(c2w).float()
@@ -320,11 +342,73 @@ class TUM_RGBD(BaseDataset):
         pose[:3, 3] = pvec[:3]
         return pose
 
+# 增加数据api for vkitti2
+class vKITTI2(BaseDataset):
+    def __init__(self, cfg, args, scale, device='cuda:0'
+                 ):
+        super(vKITTI2, self).__init__(cfg, args, scale, device)
+        self.color_paths = sorted(glob.glob(os.path.join( # Datasets/vkitti2/Scene01/clone/frames/depth/Camera_0/depth_00000.png
+            self.input_folder, 'frames', 'rgb', 'Camera_0', '*.jpg')), key=lambda x: int(os.path.basename(x)[-9:-4])) #00000
+        self.depth_paths = sorted(glob.glob(os.path.join(
+            self.input_folder, 'frames', 'depth', 'Camera_0', '*.png')), key=lambda x: int(os.path.basename(x)[-9:-4]))
+        self.n_img = len(self.color_paths)
+        self.load_poses(f'{self.input_folder}/extrinsic.txt') # Datasets/vkitti2/Scene01/clone/extrinsic.txt
+        self.plot_traj() # 保存 世界系下 (已转为算法需要的nerf 坐标系)下的轨迹 来估计Bound
+        self.input_folder = os.path.join(self.input_folder, 'frames') # Datasets/vkitti2/Scene01/clone/frames
+    
+    def load_poses(self, path):
+        self.poses = []
+        with open(path, "r") as f:
+            lines = f.readlines()
+        inv_pose = None
+        for i in range(self.n_img): # 文件中 左右目都在
+            j = 2*i+1 # 首行跳过 表示使用 Camera_0 Camera_1 : 2*(i+1)
+            line = lines[j] # 18个值 只要后16
+            w2c = np.array(list(map(float, line.split())))[2:].reshape(4, 4) #Tiw
+            c2w = np.linalg.inv(w2c) #Twi
+            if inv_pose is None: # 首帧位姿归I
+                inv_pose = w2c  # np.linalg.inv(c2w) #T0w
+                c2w = np.eye(4)
+            else:
+                c2w = inv_pose@c2w # T0w Twi = T0i
+            c2w[:3, 1] *= -1 # nerf-pytorch y和z取反 此操作（首帧对齐后）和完整的坐标系变换结果是等价 
+            c2w[:3, 2] *= -1
+            c2w = torch.from_numpy(c2w).float()
+            self.poses.append(c2w)
+    # 也画出轨迹 想看看bound to do
+    def plot_traj(self):
+        self.trajzx = []
+        for i in range(len(self.poses)):
+            c2w = self.poses[i].numpy()
+            self.trajzx.append([c2w[0,3], c2w[1,3], c2w[2,3]]) # (x,y,z)
+        traj = np.array(self.trajzx) # n,3
+        # 输出 xyz 的区域
+        print('x y z min:\n', traj.min(axis=0))
+        print('x y z max:\n', traj.max(axis=0))
+        import matplotlib.pyplot as plt
+        fig = plt.figure()
+        plt.plot(traj[:,0],traj[:,2], linestyle='dashed',c='k') # x,z
+        # plt.plot(estposes[:, 0], estposes[:, 1],c='#ff7f0e')
+        plt.xlabel('x (m)')
+        plt.ylabel('z (m)')
+        plt.legend(['Ground Truth'])
+        # plt.title(title)
+
+        plt.axis('equal')
+        savefigname = os.path.join(self.input_folder, 'gtwnerf.pdf')    
+        plt.savefig(savefigname)
+        
+        # if vis:
+        #     plt.show()
+
+        plt.close(fig)
+
 
 dataset_dict = {
     "replica": Replica,
     "scannet": ScanNet,
     "cofusion": CoFusion,
     "azure": Azure,
-    "tumrgbd": TUM_RGBD
+    "tumrgbd": TUM_RGBD,
+    "vkitti2": vKITTI2 
 }

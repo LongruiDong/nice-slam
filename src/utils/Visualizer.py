@@ -3,7 +3,7 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from src.common import get_camera_from_tensor
-
+# -*- coding:utf-8 -*-
 
 class Visualizer(object):
     """
@@ -31,7 +31,7 @@ class Visualizer(object):
             iter (int): the iteration number.
             gt_depth (tensor): ground truth depth image of the current frame.
             gt_color (tensor): ground truth color image of the current frame.
-            c2w_or_camera_tensor (tensor): camera pose, represented in 
+            c2w_or_camera_tensor (tensor): camera pose, represented in  算法中的pose是 以世界系为中心
                 camera to world matrix or quaternion and translation tensor.
             c (dicts): feature grids.
             decoders (nn.module): decoders.

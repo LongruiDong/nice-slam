@@ -1,0 +1,19 @@
+inherit_from: configs/vkitti2/vkitti2.yaml
+mapping: #更改
+  bound: [[-142.0,142.0],[-20.0,80.0],[-250.0,318.0]]  #[[-142.0,6.8],[-5.0,20.0],[-5.0,318.0]]
+  marching_cubes_bound: [[-142.0,142.0],[-20.0,80.0],[-250.0,318.0]]
+  # gtw nerf bound [[-137.06747, 2.727682],[-0.48823172,9.582563],[0.,214.5813]]
+data:
+  input_folder: Datasets/vkitti2/Scene01/clone #Datasets/TUM_RGBD/rgbd_dataset_freiburg1_desk
+  output: output/vkitti2/Scene01/ #output/TUM_RGBD/rgbd_dataset_freiburg1_desk
+cam:  #NOTE: intrinsic is different per scene in TUM e.g: Scene01
+  H: 375 # 480 375
+  W: 1242 # 640 1242
+  fx: 725.0087
+  fy: 725.0087
+  cx: 620.5 #318.6
+  cy: 187 #255.3
+  png_depth_scale: 100 #设置 https://europe.naverlabs.com/research/computer-vision/proxy-virtual-worlds-vkitti-2/
+  crop_edge: 0 #8
+  # crop_size: [384,512]
+  # distortion: [0.2624, -0.9531, -0.0054, 0.0026, 1.1633]

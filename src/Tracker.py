@@ -1,7 +1,7 @@
 import copy
 import os
 import time
-
+# -*- coding:utf-8 -*-
 import numpy as np
 import torch
 from colorama import Fore, Style
@@ -87,18 +87,21 @@ class Tracker(object):
         optimizer.zero_grad()
         c2w = get_camera_from_tensor(camera_tensor)
         Wedge = self.ignore_edge_W
-        Hedge = self.ignore_edge_H
-        batch_rays_o, batch_rays_d, batch_gt_depth, batch_gt_color = get_samples(
+        Hedge = self.ignore_edge_H #frame 25这里 get_samples全是空的返回
+        batch_rays_o, batch_rays_d, batch_gt_depth, batch_gt_color = get_samples( #(n,3) (n,3) (n) (n,3)
             Hedge, H-Hedge, Wedge, W-Wedge, batch_size, H, W, fx, fy, cx, cy, c2w, gt_depth, gt_color, self.device)
         if self.nice:
             # should pre-filter those out of bounding box depth value
             with torch.no_grad():
                 det_rays_o = batch_rays_o.clone().detach().unsqueeze(-1)  # (N, 3, 1)
                 det_rays_d = batch_rays_d.clone().detach().unsqueeze(-1)  # (N, 3, 1)
-                t = (self.bound.unsqueeze(0).to(device)-det_rays_o)/det_rays_d
-                t, _ = torch.min(torch.max(t, dim=2)[0], dim=1)
-                inside_mask = t >= batch_gt_depth
-            batch_rays_d = batch_rays_d[inside_mask]
+                t = (self.bound.unsqueeze(0).to(device)-det_rays_o)/det_rays_d # (1,3,2)-(n,3,1) =(n,3,2)   (n,3,2)
+                t, _ = torch.min(torch.max(t, dim=2)[0], dim=1) #(n,3) -> (n)
+                inside_mask = t >= batch_gt_depth #问题只可能在这里 没有满足的样本 [n]
+                intmask = inside_mask.long()
+                samp = intmask.sum().cpu().numpy()
+                x = int(2/samp)
+            batch_rays_d = batch_rays_d[inside_mask] #(m,3)
             batch_rays_o = batch_rays_o[inside_mask]
             batch_gt_depth = batch_gt_depth[inside_mask]
             batch_gt_color = batch_gt_color[inside_mask]
@@ -181,7 +184,7 @@ class Tracker(object):
                 print("Tracking Frame ",  idx.item())
                 print(Style.RESET_ALL)
 
-            if idx == 0 or self.gt_camera:
+            if idx == 0 or self.gt_camera: # gt_camera的含义？
                 c2w = gt_c2w
                 if not self.no_vis_on_first_frame:
                     self.visualizer.vis(
@@ -199,7 +202,7 @@ class Tracker(object):
 
                 camera_tensor = get_tensor_from_camera(
                     estimated_new_cam_c2w.detach())
-                if self.seperate_LR:
+                if self.seperate_LR: #? 分开优化旋转 平移 好像 
                     camera_tensor = camera_tensor.to(device).detach()
                     T = camera_tensor[-3:]
                     quad = camera_tensor[:4]
@@ -229,7 +232,7 @@ class Tracker(object):
                     self.visualizer.vis(
                         idx, cam_iter, gt_depth, gt_color, camera_tensor, self.c, self.decoders)
 
-                    loss = self.optimize_cam_in_batch(
+                    loss = self.optimize_cam_in_batch( # frame 25(375,1242)
                         camera_tensor, gt_color, gt_depth, self.tracking_pixels, optimizer_camera)
 
                     if cam_iter == 0:

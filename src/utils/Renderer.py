@@ -104,8 +104,8 @@ class Renderer(object):
             far_bb = far_bb.unsqueeze(-1)
             far_bb += 0.01
 
-        if gt_depth is not None:
-            # in case the bound is too large
+        if gt_depth is not None: #gt_depth (4089,1) why 4089
+            # in case the bound is too large frame 25 (0,1)
             far = torch.clamp(far_bb, 0,  torch.max(gt_depth*1.2))
         else:
             far = far_bb

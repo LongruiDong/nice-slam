@@ -6,7 +6,7 @@ import torch
 
 from src import config
 from src.NICE_SLAM import NICE_SLAM
-
+import traceback
 
 def setup_seed(seed):
     torch.manual_seed(seed)
@@ -35,7 +35,11 @@ def main():
 
     cfg = config.load_config(
         args.config, 'configs/nice_slam.yaml' if args.nice else 'configs/imap.yaml')
-
+    # try:
+    #     2/0
+    #     print(x)
+    # except Exception as e:
+    #     traceback.print_exc()
     slam = NICE_SLAM(cfg, args)
 
     slam.run()

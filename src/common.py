@@ -1,7 +1,8 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
-
+# -*- coding:utf-8 -*-
+import traceback
 
 def as_intrinsics_matrix(intrinsics):
     """
@@ -74,61 +75,89 @@ def random_select(l, k):
 def get_rays_from_uv(i, j, c2w, H, W, fx, fy, cx, cy, device):
     """
     Get corresponding rays from input uv.
-
+    使用内参得到射线的起点 和 方向 在世界系下的  (n,3)
     """
     if isinstance(c2w, np.ndarray):
         c2w = torch.from_numpy(c2w).to(device)
 
-    dirs = torch.stack(
-        [(i-cx)/fx, -(j-cy)/fy, -torch.ones_like(i)], -1).to(device)
-    dirs = dirs.reshape(-1, 1, 3)
+    dirs = torch.stack( # K^{-1} [u, v, 1] 得到从光心发出的射线 这里是转到 nerf-pytorch坐标系  因为下面 c2w 是用的此坐标系 
+        [(i-cx)/fx, -(j-cy)/fy, -torch.ones_like(i)], -1).to(device) #(1000,3)
+    dirs = dirs.reshape(-1, 1, 3) #(n,1,3)
     # Rotate ray directions from camera frame to the world frame
     # dot product, equals to: [c2w.dot(dir) for dir in dirs]
-    rays_d = torch.sum(dirs * c2w[:3, :3], -1)
-    rays_o = c2w[:3, -1].expand(rays_d.shape)
+    rays_d = torch.sum(dirs * c2w[:3, :3], -1) #(n,3) 世界系下射线
+    rays_o = c2w[:3, -1].expand(rays_d.shape) #(n,3) 射线的起点 在世界系的坐标 也就是位姿的平移部分
     return rays_o, rays_d
 
 
 def select_uv(i, j, n, depth, color, device='cuda:0'):
     """
     Select n uv from dense uv.
-
+    # i和j其实就是 图像裁剪后区域每像素的 下标 (u,v)
     """
-    i = i.reshape(-1)
-    j = j.reshape(-1)
-    indices = torch.randint(i.shape[0], (n,), device=device)
-    indices = indices.clamp(0, i.shape[0])
-    i = i[indices]  # (n)
-    j = j[indices]  # (n)
     depth = depth.reshape(-1)
     color = color.reshape(-1, 3)
+    finind = (depth<655.35).nonzero().reshape(-1) # 有限深度的总索引 (n) 
+    indices0 = torch.randint(finind.shape[0], (n,), device=device)
+    indices0 = indices0.clamp(0, finind.shape[0])
+    indices1 = finind[indices0] # 对应的原始index
+    indices = indices1
+    i = i.reshape(-1) # 335*1202
+    j = j.reshape(-1)
+    # indices = torch.randint(i.shape[0], (n,), device=device) # 值域[0，总像素数) 的size为(n)的向量
+    # indices = indices.clamp(0, i.shape[0]) #确保值域范围 （多此一举？ 上句已经保证了）
+    i = i[indices]  # (n) 按随机的索引的索引 拿出 选择的像素的下标
+    j = j[indices]  # (n)
+    
     depth = depth[indices]  # (n)
-    color = color[indices]  # (n,3)
+    color = color[indices]  # (n,3) 选中的像素上的深度 和 颜色
+    dnn = depth.cpu().numpy().shape[0]
+    cnn = color.cpu().numpy().shape
+    # print('[select_uv] color size: \t', cnn)
+    try:
+        # print('[select_uv] 2/depth.shape[0]: \t', 2/dnn)
+        x = 2/dnn
+    except Exception as e:
+        traceback.print_exc()
     return i, j, depth, color
 
 
 def get_sample_uv(H0, H1, W0, W1, n, depth, color, device='cuda:0'):
     """
     Sample n uv coordinates from an image region H0..H1, W0..W1
-
+    H0= edge_ H1=H-edge_ W0= edge_ W1=W-edge_ n 需要多少像素点参与优化 来自设置文件pixels:
     """
+    dnn = depth.cpu().numpy().shape
+    dnnsum = dnn[0] + dnn[1]
+    try:
+        # print('[get_sample_uv1] 2/depth.shapesum: \t', 2/dnnsum)
+        x = 2/dnnsum
+    except Exception as e:
+        traceback.print_exc()
     depth = depth[H0:H1, W0:W1]
-    color = color[H0:H1, W0:W1]
-    i, j = torch.meshgrid(torch.linspace(
+    color = color[H0:H1, W0:W1] #裁剪后的区域 各减 2*edge (335, 1202,3)
+    dnn = depth.cpu().numpy().shape
+    dnnsum = dnn[0] + dnn[1]
+    try:
+        # print('[get_sample_uv2] 2/depth.shapesum: \t', 2/dnnsum)
+        x = 2/dnnsum
+    except Exception as e:
+        traceback.print_exc()
+    i, j = torch.meshgrid(torch.linspace( #目标图像区域 网格 list[20, 1221] list[20, 354] 
         W0, W1-1, W1-W0).to(device), torch.linspace(H0, H1-1, H1-H0).to(device))
-    i = i.t()  # transpose
-    j = j.t()
-    i, j, depth, color = select_uv(i, j, n, depth, color, device=device)
+    i = i.t()  # transpose (1202,335)
+    j = j.t()  # i和j其实就是 图像区域每像素的 下标 (u,v) 矩阵
+    i, j, depth, color = select_uv(i, j, n, depth, color, device=device) #拿出随机采样的像素 的 u v d c 向量们
     return i, j, depth, color
 
 
 def get_samples(H0, H1, W0, W1, n, H, W, fx, fy, cx, cy, c2w, depth, color, device):
     """
-    Get n rays from the image region H0..H1, W0..W1.
+    Get n rays from the image region H0..H1, W0..W1. 图像裁掉了边缘一些像素
     c2w is its camera pose and depth/color is the corresponding image tensor.
-
+    (n,3) (n,3)  (n) (n,3)
     """
-    i, j, sample_depth, sample_color = get_sample_uv(
+    i, j, sample_depth, sample_color = get_sample_uv( # 先采样n个像素 对应的下标 深度 颜色 这块不会有我呢提 和 Bound无关
         H0, H1, W0, W1, n, depth, color, device=device)
     rays_o, rays_d = get_rays_from_uv(i, j, c2w, H, W, fx, fy, cx, cy, device)
     return rays_o, rays_d, sample_depth, sample_color
