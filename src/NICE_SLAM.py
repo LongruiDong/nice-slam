@@ -1,6 +1,6 @@
 import os
 import time
-
+# -*- coding:utf-8 -*-
 import numpy as np
 import torch
 import torch.multiprocessing
@@ -28,13 +28,13 @@ class NICE_SLAM():
         self.cfg = cfg
         self.args = args
         self.nice = args.nice
-
+        # 这些变量来自与yaml哪里
         self.coarse = cfg['coarse']
         self.occupancy = cfg['occupancy']
         self.low_gpu_mem = cfg['low_gpu_mem']
         self.verbose = cfg['verbose']
         self.dataset = cfg['dataset']
-        self.coarse_bound_enlarge = cfg['model']['coarse_bound_enlarge']
+        self.coarse_bound_enlarge = cfg['model']['coarse_bound_enlarge'] #含义 coarselevel 是其他层级bound coarse_bound_enlarge 倍
         if args.output is None:
             self.output = cfg['data']['output']
         else:
@@ -44,15 +44,15 @@ class NICE_SLAM():
         os.makedirs(self.ckptsdir, exist_ok=True)
         os.makedirs(f'{self.output}/mesh', exist_ok=True)
         self.H, self.W, self.fx, self.fy, self.cx, self.cy = cfg['cam']['H'], cfg['cam'][
-            'W'], cfg['cam']['fx'], cfg['cam']['fy'], cfg['cam']['cx'], cfg['cam']['cy']
+            'W'], cfg['cam']['fx'], cfg['cam']['fy'], cfg['cam']['cx'], cfg['cam']['cy'] #相机参数
         self.update_cam()
 
         model = config.get_model(cfg,  nice=self.nice)
-        self.shared_decoders = model
+        self.shared_decoders = model #which scale?
 
-        self.scale = cfg['scale']
+        self.scale = cfg['scale'] #?
 
-        self.load_bound(cfg)
+        self.load_bound(cfg) 
         if self.nice:
             self.load_pretrain(cfg)
             self.grid_init(cfg)
@@ -145,10 +145,10 @@ class NICE_SLAM():
         self.bound = torch.from_numpy(
             np.array(cfg['mapping']['bound'])*self.scale)
         bound_divisable = cfg['grid_len']['bound_divisable']
-        # enlarge the bound a bit to allow it divisable by bound_divisable
+        # enlarge the bound a bit to allow it divisable by bound_divisable 为啥要除以bound_divisable
         self.bound[:, 1] = (((self.bound[:, 1]-self.bound[:, 0]) /
                             bound_divisable).int()+1)*bound_divisable+self.bound[:, 0]
-        if self.nice:
+        if self.nice: #2 level 和颜色 共用一个bound
             self.shared_decoders.bound = self.bound
             self.shared_decoders.middle_decoder.bound = self.bound
             self.shared_decoders.fine_decoder.bound = self.bound
@@ -164,7 +164,7 @@ class NICE_SLAM():
             cfg (dict): parsed config dict
         """
 
-        if self.coarse:
+        if self.coarse: #coarse 都是单独
             ckpt = torch.load(cfg['pretrained_decoders']['coarse'],
                               map_location=cfg['mapping']['device'])
             coarse_dict = {}
@@ -191,7 +191,7 @@ class NICE_SLAM():
 
     def grid_init(self, cfg):
         """
-        Initialize the hierarchical feature grids.
+        Initialize the hierarchical feature grids. 这个看看到底是怎么弄
 
         Args:
             cfg (dict): parsed config dict.
