@@ -7,7 +7,7 @@ import numpy as np
 sys.path.append('.')
 from src import config
 from src.common import get_tensor_from_camera
-
+# -*- coding:utf-8 -*-
 def associate(first_list, second_list, offset=0.0, max_difference=0.02):
     """
     Associate two dictionaries of (stamp,data). As the time stamps never match exactly, we aim
@@ -99,7 +99,7 @@ def plot_traj(ax, stamps, traj, style, color, label):
     for i in range(len(stamps)):
         if stamps[i]-last < 2*interval:
             x.append(traj[i][0])
-            y.append(traj[i][1])
+            y.append(traj[i][2]) # 1 2(z)
         elif len(x) > 0:
             ax.plot(x, y, style, color=color, label=label)
             label = ""
@@ -149,7 +149,7 @@ def evaluate_ate(first_list, second_list, plot="", _args=""):
 
     rot, trans, trans_error = align(second_xyz, first_xyz)
 
-    second_xyz_aligned = rot * second_xyz + trans
+    second_xyz_aligned = second_xyz # rot * second_xyz + trans
 
     first_stamps = list(first_list.keys())
     first_stamps.sort()
@@ -160,7 +160,7 @@ def evaluate_ate(first_list, second_list, plot="", _args=""):
     second_stamps.sort()
     second_xyz_full = numpy.matrix([[float(value)*float(args.scale)
                                    for value in second_list[b][0:3]] for b in second_stamps]).transpose()
-    second_xyz_full_aligned = rot * second_xyz_full + trans
+    second_xyz_full_aligned = second_xyz_full #rot * second_xyz_full + trans
 
     if args.verbose:
         print("compared_pose_pairs %d pairs" % (len(trans_error)))
@@ -189,10 +189,11 @@ def evaluate_ate(first_list, second_list, plot="", _args=""):
 
     if args.plot:
         import matplotlib
-        matplotlib.use('Agg')
-        import matplotlib.pylab as pylab
+        # import matplotlib.pylab as pylab
         import matplotlib.pyplot as plt
-        from matplotlib.patches import Ellipse
+        # from matplotlib.patches import Ellipse
+        # matplotlib.use('Agg') #amax上部显示 Matplotlib is currently using agg, which is a non-GUI backend, so cannot show the figure
+        matplotlib.use('TkAgg') # vscode debug时会报错
         fig = plt.figure()
         ax = fig.add_subplot(111)
         ATE = numpy.sqrt(
@@ -205,12 +206,18 @@ def evaluate_ate(first_list, second_list, plot="", _args=""):
 
         label = "difference"
         for (a, b), (x1, y1, z1), (x2, y2, z2) in zip(matches, first_xyz.transpose().A, second_xyz_aligned.transpose().A):
-            # ax.plot([x1,x2],[y1,y2],'-',color="red",label=label)
+            if a%10==0: # 5 10
+                ax.plot([x1,x2],[z1,z2],'-',color="red",label=label) #y1,y2
             label = ""
-        ax.legend()
-        ax.set_xlabel('x [m]')
-        ax.set_ylabel('y [m]')
+        ax.legend(fontsize=20)# 设置图例字体大小
+        ax.set_xlabel('x [m]', fontsize=20)# 设置坐标标签字体大小
+        ax.set_ylabel('z [m]', fontsize=20) #
+        # 设置刻度字体大小
+        plt.xticks(fontsize=20)
+        plt.yticks(fontsize=20)
+        plt.tight_layout()
         plt.savefig(args.plot, dpi=90)
+        plt.show()
 
     return {
         "compared_pose_pairs": (len(trans_error)),
@@ -228,7 +235,7 @@ def evaluate(poses_gt, poses_est, plot):
     poses_gt = poses_gt.cpu().numpy()
     poses_est = poses_est.cpu().numpy()
 
-    N = poses_gt.shape[0]
+    N = 250 #poses_gt.shape[0] 700 650 510 500 490 480 470 460 450 400 300 183 163
     poses_gt = dict([(i, poses_gt[i]) for i in range(N)])
     poses_est = dict([(i, poses_est[i]) for i in range(N)])
 
@@ -251,7 +258,7 @@ def convert_poses(c2w_list, N, scale, gt=True):
                 mask[idx] = 0
                 continue
         c2w_list[idx][:3, 3] /= scale
-        poses.append(get_tensor_from_camera(c2w_list[idx], Tquad=True))
+        poses.append(get_tensor_from_camera(c2w_list[idx], Tquad=True)) # tx y z qw qx qy qz
     poses = torch.stack(poses)
     return poses, mask
 
@@ -295,7 +302,23 @@ if __name__ == '__main__':
                 poses_gt = torch.from_numpy(poses_gt[:, 1:])
             else:
                 poses_gt, mask = convert_poses(gt_c2w_list, N, scale)
-            poses_est, _ = convert_poses(estimate_c2w_list, N, scale)
+            poses_est, _ = convert_poses(estimate_c2w_list, N, scale) # tx y z qw qx qy qz
             poses_est = poses_est[mask]
             evaluate(poses_gt, poses_est,
                      plot=f'{output}/eval_ate_plot.png')
+            # 以tum格式保存 gt 和 est 轨迹
+            poses_est1 = poses_est.numpy()
+            poses_gt1 = poses_gt.numpy() #N,7
+            poses_est1 = poses_est1[:, [0, 1, 2, 4, 5, 6, 3]] # tx y z qx qy qz qw
+            poses_gt1 = poses_gt1[:, [0, 1, 2, 4, 5, 6, 3]]
+            fnum = poses_gt1.shape[0]
+            faketime = np.linspace(0, fnum-1, num=fnum).reshape(-1,1)
+            poses_est2 = np.hstack((faketime, poses_est1)) # (N,8) 即tum格式
+            poses_gt2 = np.hstack((faketime, poses_gt1))
+            outest = os.path.join(output, 'tum_est.txt')
+            outgt = os.path.join(cfg['data']['input_folder'], 'tum_gt.txt')
+            print('save pose_est in tum format: ', outest)
+            print('save pose_gt in tum format: ', outgt)
+            np.savetxt(outest, poses_est2)
+            np.savetxt(outgt, poses_gt2)
+            np.savetxt(os.path.join(output, 'tum_gt.txt'), poses_gt2)

@@ -1,3 +1,4 @@
+from audioop import reverse
 import os
 import torch
 import numpy as np
@@ -13,12 +14,12 @@ class Visualizer(object):
     """
 
     def __init__(self, freq, inside_freq, vis_dir, renderer, verbose, device='cuda:0'):
-        self.freq = freq
+        self.freq = freq #输入参数
         self.device = device
         self.vis_dir = vis_dir
         self.verbose = verbose
         self.renderer = renderer
-        self.inside_freq = inside_freq
+        self.inside_freq = inside_freq #输入参数
         os.makedirs(f'{vis_dir}', exist_ok=True)
 
     def vis(self, idx, iter, gt_depth, gt_color, c2w_or_camera_tensor, c,
@@ -55,7 +56,7 @@ class Visualizer(object):
                     decoders,
                     c2w,
                     self.device,
-                    stage='color',
+                    stage='color', #这个渲染来可视化的stage是color！ 但其实也会得到fine下的occupancy
                     gt_depth=gt_depth)
                 depth_np = depth.detach().cpu().numpy()
                 color_np = color.detach().cpu().numpy()
@@ -67,18 +68,37 @@ class Visualizer(object):
                 fig, axs = plt.subplots(2, 3)
                 fig.tight_layout()
                 max_depth = np.max(gt_depth_np)
-                axs[0, 0].imshow(gt_depth_np, cmap="plasma",
-                                 vmin=0, vmax=max_depth)
+                # gt_depth_np = gt_depth_np/max_depth*255
+                # gt_depth_np = np.clip(gt_depth_np, 0, 255).astype(np.uint8)
+                gt_depth_np = gt_depth_np.astype(np.float)*100
+                gt_depth_np = np.clip(gt_depth_np, 0, 65535)
+                gt_depth_np = gt_depth_np.astype(np.uint16)
+                # 对于outdoor 要排除掉无穷远
+                # gt_alldepthv = np.unique(gt_depth_np)
+                # gt_alldepthv1 = gt_alldepthv[np.argsort(-gt_alldepthv)] #降序排列
+                # secondmax_depth = gt_alldepthv1[1] # 次大值
+                # depth_np = depth_np/max_depth*255 #这种方式本质上和源代码等效 近处的深度仍看不清楚
+                # depth_np = np.clip(depth_np, 0, 255).astype(np.uint8)
+                depth_np = depth_np.astype(np.float)*100
+                depth_np = np.clip(depth_np, 0, 65535)
+                depth_np = depth_np.astype(np.uint16)
+                # depth_residual = depth_residual/max_depth*255
+                # depth_residual = np.clip(depth_residual, 0, 255).astype(np.uint8)
+                depth_residual = depth_residual.astype(np.float)*100
+                depth_residual = np.clip(depth_residual, 0, 65535)
+                depth_residual = depth_residual.astype(np.uint16)
+                axs[0, 0].imshow(gt_depth_np)#, cmap="plasma",
+                                #  vmin=0, vmax=255) #max_depth
                 axs[0, 0].set_title('Input Depth')
                 axs[0, 0].set_xticks([])
                 axs[0, 0].set_yticks([])
-                axs[0, 1].imshow(depth_np, cmap="plasma",
-                                 vmin=0, vmax=max_depth)
+                axs[0, 1].imshow(depth_np)#, cmap="plasma",
+                                #  vmin=0, vmax=255)
                 axs[0, 1].set_title('Generated Depth')
                 axs[0, 1].set_xticks([])
                 axs[0, 1].set_yticks([])
-                axs[0, 2].imshow(depth_residual, cmap="plasma",
-                                 vmin=0, vmax=max_depth)
+                axs[0, 2].imshow(depth_residual)#, cmap="plasma",
+                                #  vmin=0, vmax=255)
                 axs[0, 2].set_title('Depth Residual')
                 axs[0, 2].set_xticks([])
                 axs[0, 2].set_yticks([])

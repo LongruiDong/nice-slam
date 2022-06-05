@@ -1,4 +1,4 @@
-coarse: True
+coarse: True #是否优化coarse level geometry 地图
 sync_method: strict
 scale: 1
 verbose: True
@@ -63,8 +63,8 @@ mapping:
   frustum_feature_selection: True
   keyframe_selection_method: 'overlap'
   save_selected_keyframes_info: False
-  lr_first_factor: 5
-  lr_factor: 1
+  lr_first_factor: 5 #
+  lr_factor: 1 #初始化之后 因子1 即不再扩大
   pixels: 1000
   iters_first: 1500
   iters: 60
@@ -90,7 +90,7 @@ mapping:
     color:
       decoders_lr: 0.005
       coarse_lr: 0.0
-      middle_lr: 0.005
+      middle_lr: 0.005 #最后stage优化时 要对 middle fine 也要优化
       fine_lr: 0.005
       color_lr: 0.005
 cam:

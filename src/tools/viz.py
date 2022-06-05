@@ -5,6 +5,7 @@ from queue import Empty
 import numpy as np
 import open3d as o3d
 import torch
+import time
 
 
 def normalize(x):
@@ -146,11 +147,12 @@ def draw_trajectory(queue, output, init_pose, cam_scale,
         vis.poll_events()
         vis.update_renderer()
         if save_rendering:
+            # time.sleep(5)
             # save the renderings, useful when making a video
             draw_trajectory.frame_idx += 1
             os.makedirs(f'{output}/tmp_rendering', exist_ok=True)
             vis.capture_screen_image(
-                f'{output}/tmp_rendering/{draw_trajectory.frame_idx:06d}.jpg')
+                f'{output}/tmp_rendering/{draw_trajectory.frame_idx:06d}.jpg', True)
 
     vis = o3d.visualization.Visualizer()
 

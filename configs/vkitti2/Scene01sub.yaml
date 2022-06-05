@@ -1,0 +1,68 @@
+inherit_from: configs/vkitti2/vkitti2.yaml #就跑前50帧 来debug
+grid_len: #对于outdoor该如何设 for scene01
+  coarse: 10 # 20 30
+  middle: 2 # 2.64 5.2
+  fine: 1.0 #1.32 2.6
+  color: 1.0
+  bound_divisable: 2.0 # 0.32
+tracking:
+  gt_camera: True #? True False
+mapping: #更改
+  bound: [[-8.0,8.0],[-6.0,25],[-100.0,100]]  #[[-142.0,6.8],[-5.0,20.0],[-5.0,318.0]]
+  marching_cubes_bound: [[-8.0,8.0],[-6.0,25],[-10.0,100]] 
+  # gtw nerf bound [[0, 1.08],[-0.16,0,[0.,54.8]]
+  BA: False # True #mapping是否一同优化位姿
+  no_vis_on_first_frame: False #首帧是否不可视化 False
+  every_frame: 1 #? mapping的频率 1 10 3
+  vis_freq: 1 #当前帧是否要可始化中间render结果 6
+  vis_inside_freq: 20 # 优化中每几步进行可视化
+  mesh_freq: 1
+  ckpt_freq: 3
+  keyframe_every: 5 #和关键帧密度有关
+  mapping_window_size: 20 # 20 10
+  pixels: 6000 #被用来优化的图像上的像素数吧
+  iters_first: 1500
+  iters: 1000 #60  80 160 想让每一帧 coarse的优化都更久一些 
+  lr_first_factor: 5 #
+  lr_factor: 1 #初始化之后 因子1 即不再扩大
+  middle_iter_ratio: 0.4
+  fine_iter_ratio: 0.6 #0.6 0.4 测试 初始化时 不做fine 
+  stage:
+    coarse:
+      decoders_lr: 0.0
+      coarse_lr: 0.001 # 0.001 0.002
+      middle_lr: 0.0
+      fine_lr: 0.0
+      color_lr: 0.0
+    middle:
+      decoders_lr: 0.0
+      coarse_lr: 0.0
+      middle_lr: 0.1
+      fine_lr: 0.0
+      color_lr: 0.0
+    fine:
+      decoders_lr: 0.0
+      coarse_lr: 0.0
+      middle_lr: 0.005
+      fine_lr: 0.005
+      color_lr: 0.0
+    color:
+      decoders_lr: 0.005 #0.005
+      coarse_lr: 0.0
+      middle_lr: 0.005 #最后stage优化时 要对 middle fine 也要优化 0.005 测试初始化时也关掉 geo
+      fine_lr: 0.005
+      color_lr: 0.005
+data:
+  input_folder: Datasets/vkitti2/Scene01sub/clone #Datasets/TUM_RGBD/rgbd_dataset_freiburg1_desk
+  output: output/vkitti2/Scene01sub-sampleuv #output/TUM_RGBD/rgbd_dataset_freiburg1_desk
+cam:  #NOTE: intrinsic is different per scene in TUM e.g: Scene01
+  H: 375 # 480 375
+  W: 1242 # 640 1242
+  fx: 725.0087
+  fy: 725.0087
+  cx: 620.5 #318.6
+  cy: 187 #255.3
+  png_depth_scale: 100 #设置 https://europe.naverlabs.com/research/computer-vision/proxy-virtual-worlds-vkitti-2/
+  crop_edge: 0 #8
+  # crop_size: [384,512]
+  # distortion: [0.2624, -0.9531, -0.0054, 0.0026, 1.1633]

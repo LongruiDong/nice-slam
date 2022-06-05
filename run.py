@@ -7,6 +7,7 @@ import torch
 from src import config
 from src.NICE_SLAM import NICE_SLAM
 import traceback
+from src.utils.datasets import get_dataset
 
 def setup_seed(seed):
     torch.manual_seed(seed)
@@ -40,6 +41,7 @@ def main():
     #     print(x)
     # except Exception as e:
     #     traceback.print_exc()
+    # get_dataset(cfg, args, 1.0)
     slam = NICE_SLAM(cfg, args)
 
     slam.run()

@@ -111,11 +111,11 @@ class Tracker(object):
         depth, uncertainty, color = ret
 
         uncertainty = uncertainty.detach()
-        if self.handle_dynamic:
+        if self.handle_dynamic: # 处理运动物体
             tmp = torch.abs(batch_gt_depth-depth)/torch.sqrt(uncertainty+1e-10)
             mask = (tmp < 10*tmp.median()) & (batch_gt_depth > 0)
-        else:
-            mask = batch_gt_depth > 0
+        else: #只考虑mask内的像素参与误差 # 对于outdoor 加上 不属于无穷远 vkitti 655.35
+            mask = (batch_gt_depth > 0) # & (batch_gt_depth < 600)
 
         loss = (torch.abs(batch_gt_depth-depth) /
                 torch.sqrt(uncertainty+1e-10))[mask].sum()
@@ -192,12 +192,12 @@ class Tracker(object):
 
             else:
                 gt_camera_tensor = get_tensor_from_camera(gt_c2w)
-                if self.const_speed_assumption and idx-2 >= 0:
+                if self.const_speed_assumption and idx-2 >= 0: #匀速运动得到track当前帧的初始位姿
                     pre_c2w = pre_c2w.float()
                     delta = pre_c2w@self.estimate_c2w_list[idx-2].to(
                         device).float().inverse()
                     estimated_new_cam_c2w = delta@pre_c2w
-                else:
+                else: # 就拿上一帧的位姿  所以输入还是要有时序才行
                     estimated_new_cam_c2w = pre_c2w
 
                 camera_tensor = get_tensor_from_camera(

@@ -1,0 +1,49 @@
+inherit_from: configs/tartanair/tartanair.yaml
+grid_len: #对于office0
+  coarse: 4 # 2
+  middle: 0.64 # 0.32
+  fine: 0.32 #0.16
+  color: 0.32
+  bound_divisable: 0.32
+tracking:
+  gt_camera: False #? True False
+  vis_freq: 1
+  vis_inside_freq: 25 # 24 25
+  ignore_edge_W: 20
+  ignore_edge_H: 20
+  seperate_LR: False
+  const_speed_assumption: True
+  gt_camera: False
+  lr: 0.003
+  pixels: 200
+  iters: 50
+ #? True False
+mapping: #更改
+  bound: [[-50.,50],[-6.0,6.5],[-35.,45]]
+  marching_cubes_bound: [[-50.,50],[-6.0,6.5],[-35.,45]]
+  # gtw nerf bound [[-26, 1],[-1,1],[-7.,11]]
+  BA: True # True #mapping是否一同优化位姿 False
+  every_frame: 5
+  vis_freq: 5 # 一般是every_frame的整数倍
+  vis_inside_freq: 30
+  mesh_freq: 50
+  ckpt_freq: 200 # 500 200
+  keyframe_every: 50 #和关键帧密度有关
+  mapping_window_size: 10
+  pixels: 5000
+  iters_first: 1500
+  iters: 60
+data:
+  input_folder: Datasets/TartanAir/office/Easy/P000sub # sub 前601
+  output: output/tartanair/office/P000-clipdepthsuvrmo #output/TUM_RGBD/rgbd_dataset_freiburg1_desk
+cam:  #NOTE: intrinsic is different per scene in TUM e.g: Scene01
+  H: 480 # 480 375
+  W: 640 # 640 1242
+  fx: 320.0
+  fy: 320.0
+  cx: 320.0 #318.6
+  cy: 240.0 #255.3
+  png_depth_scale: 1. #设置 https://github.com/castacks/tartanair_tools/blob/master/data_type.md
+  # crop_edge: 0 #8
+  # crop_size: [384,512]
+  # distortion: [0.2624, -0.9531, -0.0054, 0.0026, 1.1633]

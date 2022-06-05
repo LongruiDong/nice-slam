@@ -92,12 +92,23 @@ def get_rays_from_uv(i, j, c2w, H, W, fx, fy, cx, cy, device):
 
 def select_uv(i, j, n, depth, color, device='cuda:0'):
     """
-    Select n uv from dense uv.
+    Select n uv from dense uv. 他这里没按I-map那样采样啊。。
     # i和j其实就是 图像裁剪后区域每像素的 下标 (u,v)
     """
+    # i = i.reshape(-1)
+    # j = j.reshape(-1)
+    # indices = torch.randint(i.shape[0], (n,), device=device)
+    # indices = indices.clamp(0, i.shape[0])
+    # i = i[indices]  # (n)
+    # j = j[indices]  # (n)
+    # depth = depth.reshape(-1)
+    # color = color.reshape(-1, 3)
+    # depth = depth[indices]  # (n)
+    # color = color[indices]  # (n,3)
+    # return i, j, depth, color
     depth = depth.reshape(-1)
     color = color.reshape(-1, 3)
-    finind = (depth<655.35).nonzero().reshape(-1) # 有限深度的总索引 (n) 
+    finind = (depth<600).nonzero().reshape(-1) # 有限深度的总索引 (n) 655.35
     indices0 = torch.randint(finind.shape[0], (n,), device=device)
     indices0 = indices0.clamp(0, finind.shape[0])
     indices1 = finind[indices0] # 对应的原始index
@@ -114,11 +125,11 @@ def select_uv(i, j, n, depth, color, device='cuda:0'):
     dnn = depth.cpu().numpy().shape[0]
     cnn = color.cpu().numpy().shape
     # print('[select_uv] color size: \t', cnn)
-    try:
-        # print('[select_uv] 2/depth.shape[0]: \t', 2/dnn)
-        x = 2/dnn
-    except Exception as e:
-        traceback.print_exc()
+    # try:
+    #     # print('[select_uv] 2/depth.shape[0]: \t', 2/dnn)
+    #     x = 2/dnn
+    # except Exception as e:
+    #     traceback.print_exc()
     return i, j, depth, color
 
 
@@ -219,9 +230,9 @@ def get_tensor_from_camera(RT, Tquad=False):
     from mathutils import Matrix
     R, T = RT[:3, :3], RT[:3, 3]
     rot = Matrix(R)
-    quad = rot.to_quaternion()
+    quad = rot.to_quaternion() # w x y z https://docs.blender.org/api/current/mathutils.html#mathutils.Quaternion
     if Tquad:
-        tensor = np.concatenate([T, quad], 0)
+        tensor = np.concatenate([T, quad], 0) # tx y z qw qx qy qz
     else:
         tensor = np.concatenate([quad, T], 0)
     tensor = torch.from_numpy(tensor).float()
@@ -257,7 +268,7 @@ def raw2outputs_nerf_color(raw, z_vals, rays_d, occupancy=False, device='cuda:0'
 
     # different ray angle corresponds to different unit length
     dists = dists * torch.norm(rays_d[..., None, :], dim=-1)
-    rgb = raw[..., :-1]
+    rgb = raw[..., :-1] #注意颜色是其中的一部分
     if occupancy:
         raw[..., 3] = torch.sigmoid(10*raw[..., -1])
         alpha = raw[..., -1]

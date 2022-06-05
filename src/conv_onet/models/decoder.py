@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from src.common import normalize_3d_coordinate
-
+# -*- coding:utf-8 -*-
 
 class GaussianFourierFeatureTransform(torch.nn.Module):
     """
@@ -333,7 +333,7 @@ class NICE(nn.Module):
             middle_occ = middle_occ.squeeze(0)
             raw[..., -1] = fine_occ+middle_occ
             return raw
-        elif stage == 'color':
+        elif stage == 'color': #优化 可视化渲染 调用时 虽然stage是颜色 但是会输出fine 和颜色的值
             fine_occ = self.fine_decoder(p, c_grid)
             raw = self.color_decoder(p, c_grid)
             middle_occ = self.middle_decoder(p, c_grid)

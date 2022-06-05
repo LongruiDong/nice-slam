@@ -1,0 +1,22 @@
+inherit_from: configs/tcsvt/tcsvt.yaml
+tracking:
+  gt_camera: True #? True False
+mapping: #更改
+  bound: [[-30.0,10.0],[-8,25.0],[-40.0,25.0]]  #[[-142.0,6.8],[-5.0,20.0],[-5.0,318.0]]
+  marching_cubes_bound: [[-30.0,10.0],[-8,25.0],[-40.0,25.0]]
+  # gtw nerf bound [[-137.06747, 2.727682],[-0.48823172,9.582563],[0.,214.5813]]
+  BA: False # True #mapping是否一同优化位姿 False
+data:
+  input_folder: Datasets/tcsvt/whole-floor/W2/glass #Datasets/tcsvt/whole-floor/W2/glass
+  output: output/tcsvt/W2-gtpose #output/TUM_RGBD/rgbd_dataset_freiburg1_desk
+cam:  #NOTE: intrinsic is different per scene in TUM e.g: Scene01
+  H: 400 # 480 375
+  W: 640 # 640 1242
+  fx: 299.420633
+  fy: 299.420633
+  cx: 327.985214 #318.6
+  cy: 201.177768 #255.3
+  png_depth_scale: 800. #设置 https://europe.naverlabs.com/research/computer-vision/proxy-virtual-worlds-vkitti-2/
+  crop_edge: 20 #8
+  # crop_size: [384,512]
+  # distortion: [0.2624, -0.9531, -0.0054, 0.0026, 1.1633]

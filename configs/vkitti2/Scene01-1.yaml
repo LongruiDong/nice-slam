@@ -3,12 +3,12 @@ tracking:
   gt_camera: True #? True False
 mapping: #更改
   bound: [[-200.0,200.0],[-50.0,280.0],[-350.0,350.0]]  #[[-142.0,6.8],[-5.0,20.0],[-5.0,318.0]]
-  marching_cubes_bound: [[-60.0,20.0],[-5.0,20.0],[-10.0,60.0]]
+  marching_cubes_bound: [[-60.0,20.0],[-25.0,20.0],[-10.0,60.0]]
   # gtw nerf bound [[-137.06747, 2.727682],[-0.48823172,9.582563],[0.,214.5813]]
   BA: False # True #mapping是否一同优化位姿
 data:
   input_folder: Datasets/vkitti2/Scene01/clone #Datasets/TUM_RGBD/rgbd_dataset_freiburg1_desk
-  output: output/vkitti2/Scene01-nomaskrawselectuv #output/TUM_RGBD/rgbd_dataset_freiburg1_desk
+  output: output/vkitti2/Scene01-maskdepth1 #output/TUM_RGBD/rgbd_dataset_freiburg1_desk
 cam:  #NOTE: intrinsic is different per scene in TUM e.g: Scene01
   H: 375 # 480 375
   W: 1242 # 640 1242

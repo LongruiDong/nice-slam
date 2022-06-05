@@ -1,6 +1,6 @@
 import os
 import time
-
+# -*- coding:utf-8 -*-
 import cv2
 import numpy as np
 import torch
@@ -58,7 +58,7 @@ class Mapper(object):
         self.mapping_pixels = cfg['mapping']['pixels']
         self.num_joint_iters = cfg['mapping']['iters']
         self.clean_mesh = cfg['meshing']['clean_mesh']
-        self.every_frame = cfg['mapping']['every_frame']
+        self.every_frame = cfg['mapping']['every_frame'] #输入参数每隔x帧进行mapping
         self.color_refine = cfg['mapping']['color_refine']
         self.w_color_loss = cfg['mapping']['w_color_loss']
         self.keyframe_every = cfg['mapping']['keyframe_every']
@@ -371,7 +371,7 @@ class Mapper(object):
                                               {'params': fine_grid_para, 'lr': 0},
                                               {'params': color_grid_para, 'lr': 0},
                                               {'params': camera_tensor_list, 'lr': 0}])
-            else:
+            else: # 若关闭self.BA 就不优化相机位姿
                 optimizer = torch.optim.Adam([{'params': decoders_para_list, 'lr': 0},
                                               {'params': coarse_grid_para, 'lr': 0},
                                               {'params': middle_grid_para, 'lr': 0},
@@ -401,15 +401,15 @@ class Mapper(object):
                             c[key] = val
 
                 if self.coarse_mapper:
-                    self.stage = 'coarse'
-                elif joint_iter <= int(num_joint_iters*self.middle_iter_ratio):
+                    self.stage = 'coarse' #这是零一个线程在做
+                elif joint_iter <= int(num_joint_iters*self.middle_iter_ratio): #default 0.4
                     self.stage = 'middle'
-                elif joint_iter <= int(num_joint_iters*self.fine_iter_ratio):
+                elif joint_iter <= int(num_joint_iters*self.fine_iter_ratio): # 0.4~0.6
                     self.stage = 'fine'
-                else:
+                else: #0.6~1
                     self.stage = 'color'
-
-                optimizer.param_groups[0]['lr'] = cfg['mapping']['stage'][self.stage]['decoders_lr']*lr_factor
+                # 学习率设置
+                optimizer.param_groups[0]['lr'] = cfg['mapping']['stage'][self.stage]['decoders_lr']*lr_factor #color 的decoder
                 optimizer.param_groups[1]['lr'] = cfg['mapping']['stage'][self.stage]['coarse_lr']*lr_factor
                 optimizer.param_groups[2]['lr'] = cfg['mapping']['stage'][self.stage]['middle_lr']*lr_factor
                 optimizer.param_groups[3]['lr'] = cfg['mapping']['stage'][self.stage]['fine_lr']*lr_factor
@@ -424,10 +424,10 @@ class Mapper(object):
                     optimizer.param_groups[1]['lr'] = self.BA_cam_lr
 
             if (not (idx == 0 and self.no_vis_on_first_frame)) and ('Demo' not in self.output):
-                self.visualizer.vis(
+                self.visualizer.vis( #每一次优化前去可视化rendered的结果
                     idx, joint_iter, cur_gt_depth, cur_gt_color, cur_c2w, self.c, self.decoders)
 
-            optimizer.zero_grad()
+            optimizer.zero_grad() #梯度归零
             batch_rays_d_list = []
             batch_rays_o_list = []
             batch_gt_depth_list = []
@@ -483,8 +483,8 @@ class Mapper(object):
                                                  batch_rays_o, device, self.stage,
                                                  gt_depth=None if self.coarse_mapper else batch_gt_depth)
             depth, uncertainty, color = ret
-
-            depth_mask = (batch_gt_depth > 0)
+            # 和 tracker中的改动一致
+            depth_mask = (batch_gt_depth > 0)# & (batch_gt_depth < 600) #只考虑mask内的像素参与误差 # 对于outdoor 加上 不属于无穷远 vkitti 655.35
             loss = torch.abs(
                 batch_gt_depth[depth_mask]-depth[depth_mask]).sum()
             if ((not self.nice) or (self.stage == 'color')):
@@ -500,8 +500,8 @@ class Mapper(object):
                 regulation_loss = torch.abs(point_sigma).sum()
                 loss += 0.0005*regulation_loss
 
-            loss.backward(retain_graph=False)
-            optimizer.step()
+            loss.backward(retain_graph=False) #反向传播计算梯度
+            optimizer.step() #梯度下降进行参数更新
             if not self.nice:
                 # for imap*
                 scheduler.step()
@@ -551,7 +551,7 @@ class Mapper(object):
                 idx = self.idx[0].clone()
                 if idx == self.n_img-1:
                     break
-                if self.sync_method == 'strict':
+                if self.sync_method == 'strict': #输入参数每隔x帧进行mapping
                     if idx % self.every_frame == 0 and idx != prev_idx:
                         break
 
@@ -572,7 +572,7 @@ class Mapper(object):
             _, gt_color, gt_depth, gt_c2w = self.frame_reader[idx]
 
             if not init:
-                lr_factor = cfg['mapping']['lr_factor']
+                lr_factor = cfg['mapping']['lr_factor'] #非初始化 
                 num_joint_iters = cfg['mapping']['iters']
 
                 # here provides a color refinement postprocess
@@ -592,8 +592,8 @@ class Mapper(object):
 
             else:
                 outer_joint_iters = 1
-                lr_factor = cfg['mapping']['lr_first_factor']
-                num_joint_iters = cfg['mapping']['iters_first']
+                lr_factor = cfg['mapping']['lr_first_factor'] #初始化时学习率times
+                num_joint_iters = cfg['mapping']['iters_first'] #初始的总迭代次数很大
 
             cur_c2w = self.estimate_c2w_list[idx].to(self.device)
             num_joint_iters = num_joint_iters//outer_joint_iters
