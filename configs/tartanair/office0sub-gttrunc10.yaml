@@ -8,41 +8,37 @@ grid_len: #对于office0
 tracking:
   gt_camera: True #? True False
  #? True False
-meshing: #这些参数要调整
+meshing: #这些参数要调整？
   level_set: 0
   resolution: 256 # change to 512 for higher resolution geometry
-  eval_rec: True #默认只对replica True False 测试打开
+  eval_rec: False
   clean_mesh: True # True False no clean
   depth_test: False
   mesh_coarse_level: False
   clean_mesh_bound_scale: 1.02
   get_largest_components: False
   color_mesh_extraction_method: direct_point_query
-  remove_small_geometry_threshold: 0.2 # 0.2 0.4 增大阈值 想清理更多
+  remove_small_geometry_threshold: 0.2 #对于大场景 调大一些？
 mapping: #更改
-  # bound: [[-37.3,4.3],[-1.9,4.1],[-23.,14.7]]
-  # marching_cubes_bound: [[-37.3,4.3],[-1.9,1.5],[-23.,14.7]] # y 3.7
-  # office0-sub
-  bound: [[-37.3,4.3],[-1.9,4.1],[-21.7,4.6]]
-  marching_cubes_bound: [[-37.3,4.3],[-1.9,1.5],[-21.7,4.6]] # y 1.0 1.5
+  bound: [[-37.3,4.3],[-1.9,4.1],[-23.,14.7]]
+  marching_cubes_bound: [[-37.3,4.3],[-1.9,1.5],[-23.,14.7]] # y 3.7
   # gtw nerf bound [[-26, 1],[-1,1],[-7.,11]]
   every_frame: 5
   vis_freq: 5 # 一般是every_frame的整数倍
   vis_inside_freq: 29 # 30 29
   mesh_freq: 50
-  ckpt_freq: 600 # 500 200 600
-  keyframe_every: 30 #和关键帧密度有关50  20 30 
-  save_selected_keyframes_info: True
-  mapping_window_size: 10 # 5 10
-  pixels: 5000 #这是kfs总的像素数吧 
+  ckpt_freq: 200 # 500 200
+  keyframe_every: 50 #和关键帧密度有关
+  mapping_window_size: 10
+  pixels: 5000
   iters_first: 1500
-  iters: 240 # 测试增大迭代次数 60 120 600 1000
+  iters: 240 # 增大这里的迭代次数？60 240
   # gtw nerf bound [[-26, 1],[-1,1],[-7.,11]]
   BA: False # True #mapping是否一同优化位姿 False
   no_vis_on_first_frame: False # False True
 data:
   input_folder: Datasets/TartanAir/office/Easy/P000sub #Datasets/tcsvt/whole-floor/W2/glass
-  output: output/tartanair/office/P000sub-gtk20it1kyl # nope
+  output: output/tartanair/office/P000sub-gtcleanit240 #output/TUM_RGBD/rgbd_dataset_freiburg1_desk
 cam:  #NOTE: intrinsic is different per scene in TUM e.g: Scene01
   H: 480 # 480 375
   W: 640 # 640 1242
@@ -54,5 +50,5 @@ cam:  #NOTE: intrinsic is different per scene in TUM e.g: Scene01
   # crop_edge: 0 #8
   # crop_size: [384,512]
   # distortion: [0.2624, -0.9531, -0.0054, 0.0026, 1.1633]
-  depth_trunc: -1 # add for limit bound discard larger depth 20.0
+  depth_trunc: -1 # add for limit bound discard larger depth -1 20.0 10.
   sky_depth: 10000

@@ -13,7 +13,7 @@ class Visualizer(object):
 
     """
 
-    def __init__(self, freq, inside_freq, vis_dir, renderer, verbose, device='cuda:0'):
+    def __init__(self, freq, inside_freq, vis_dir, renderer, verbose, depth_trunc=-1,device='cuda:0'):
         self.freq = freq #输入参数
         self.device = device
         self.vis_dir = vis_dir
@@ -21,9 +21,10 @@ class Visualizer(object):
         self.renderer = renderer
         self.inside_freq = inside_freq #输入参数
         os.makedirs(f'{vis_dir}', exist_ok=True)
+        self.depth_trunc = depth_trunc #用于区分可视化
 
     def vis(self, idx, iter, gt_depth, gt_color, c2w_or_camera_tensor, c,
-            decoders):
+            decoders, selecti = torch.zeros(0,), selectj = torch.zeros(0,)):
         """
         Visualization of depth, color images and save to file.
 
@@ -70,35 +71,37 @@ class Visualizer(object):
                 max_depth = np.max(gt_depth_np)
                 # gt_depth_np = gt_depth_np/max_depth*255
                 # gt_depth_np = np.clip(gt_depth_np, 0, 255).astype(np.uint8)
-                gt_depth_np = gt_depth_np.astype(np.float)*100
-                gt_depth_np = np.clip(gt_depth_np, 0, 65535)
-                gt_depth_np = gt_depth_np.astype(np.uint16)
+                # gt_depth_np = gt_depth_np.astype(np.float)*100
+                # gt_depth_np = np.clip(gt_depth_np, 0, 65535)
+                # gt_depth_np = gt_depth_np.astype(np.uint16)
                 # 对于outdoor 要排除掉无穷远
-                # gt_alldepthv = np.unique(gt_depth_np)
-                # gt_alldepthv1 = gt_alldepthv[np.argsort(-gt_alldepthv)] #降序排列
-                # secondmax_depth = gt_alldepthv1[1] # 次大值
+                gt_alldepthv = np.unique(gt_depth_np)
+                gt_alldepthv1 = gt_alldepthv[np.argsort(-gt_alldepthv)] #降序排列
+                secondmax_depth = gt_alldepthv1[1] # 次大值 保证不是sky 无限远
                 # depth_np = depth_np/max_depth*255 #这种方式本质上和源代码等效 近处的深度仍看不清楚
                 # depth_np = np.clip(depth_np, 0, 255).astype(np.uint8)
-                depth_np = depth_np.astype(np.float)*100
-                depth_np = np.clip(depth_np, 0, 65535)
-                depth_np = depth_np.astype(np.uint16)
+                # depth_np = depth_np.astype(np.float)*100
+                # depth_np = np.clip(depth_np, 0, 65535)
+                # depth_np = depth_np.astype(np.uint16)
                 # depth_residual = depth_residual/max_depth*255
                 # depth_residual = np.clip(depth_residual, 0, 255).astype(np.uint8)
-                depth_residual = depth_residual.astype(np.float)*100
-                depth_residual = np.clip(depth_residual, 0, 65535)
-                depth_residual = depth_residual.astype(np.uint16)
-                axs[0, 0].imshow(gt_depth_np)#, cmap="plasma",
-                                #  vmin=0, vmax=255) #max_depth
+                # depth_residual = depth_residual.astype(np.float)*100
+                # depth_residual = np.clip(depth_residual, 0, 65535)
+                # depth_residual = depth_residual.astype(np.uint16)
+                if self.depth_trunc>0: # 如果depth截断过 就用最大值 ！
+                    secondmax_depth = max_depth
+                axs[0, 0].imshow(gt_depth_np, cmap="plasma",
+                                 vmin=0, vmax=secondmax_depth) #max_depth
                 axs[0, 0].set_title('Input Depth')
                 axs[0, 0].set_xticks([])
                 axs[0, 0].set_yticks([])
-                axs[0, 1].imshow(depth_np)#, cmap="plasma",
-                                #  vmin=0, vmax=255)
+                axs[0, 1].imshow(depth_np, cmap="plasma",
+                                 vmin=0, vmax=secondmax_depth) #max_depth
                 axs[0, 1].set_title('Generated Depth')
                 axs[0, 1].set_xticks([])
                 axs[0, 1].set_yticks([])
-                axs[0, 2].imshow(depth_residual)#, cmap="plasma",
-                                #  vmin=0, vmax=255)
+                axs[0, 2].imshow(depth_residual, cmap="plasma",
+                                 vmin=0, vmax=secondmax_depth) #max_depth
                 axs[0, 2].set_title('Depth Residual')
                 axs[0, 2].set_xticks([])
                 axs[0, 2].set_yticks([])
@@ -109,6 +112,12 @@ class Visualizer(object):
                 axs[1, 0].set_title('Input RGB')
                 axs[1, 0].set_xticks([])
                 axs[1, 0].set_yticks([])
+                selecti = selecti.cpu().numpy()
+                selectj = selectj.cpu().numpy()
+                if selecti.shape[0] > 0 : #当有采样点时 在gtcolor画散点
+                    print('sample pixels: \t',selecti.shape[0])
+                    if iter==0: #指在iter0可视化
+                        axs[1,0].scatter(selecti, selectj, c='red', s=2)
                 axs[1, 1].imshow(color_np, cmap="plasma")
                 axs[1, 1].set_title('Generated RGB')
                 axs[1, 1].set_xticks([])

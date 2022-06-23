@@ -20,23 +20,15 @@ meshing: #这些参数要调整
   color_mesh_extraction_method: direct_point_query
   remove_small_geometry_threshold: 0.2 # 0.2 0.4 增大阈值 想清理更多
 mapping: #更改
-  # bound: [[-37.3,4.3],[-1.9,4.1],[-23.,14.7]]
-  # marching_cubes_bound: [[-37.3,4.3],[-1.9,1.5],[-23.,14.7]] # y 3.7
-  # office0-sub norm nerf-style
-  # bound: [[-37.3,4.3],[-1.9,4.1],[-21.7,4.6]]
-  # marching_cubes_bound: [[-37.3,4.3],[-1.9,1.5],[-21.7,4.6]] # y 1.0 1.5
-  # # office0-sub no norm raw
-  # bound: [[-25.0,15.7],[-2.4,1.4],[-12.4,15.1]] #[[-20.3,15.7],[-2.4,1.4],[-12.4,15.1]]
-  # marching_cubes_bound: [[-20.3,15.7],[-2.4,1.4],[-12.4,15.1]]
-  # # office0 no norm raw
-  bound: [[-25.0,15.7],[-2.4,1.4],[-12.4,15.1]]
-  marching_cubes_bound: [[-25.0,15.7],[-1.8,1.4],[-12.4,15.1]] # -2.0 想不显示roof -1.8
-
+  # # office1 no norm raw [[-25.5,12.1],[-3.9,2.5],[-15.1,15.1]] dtrunc20
+  bound: [[-25.5,15.7],[-3.9,2.5],[-15.1,15.1]]
+  marching_cubes_bound: [[-25.5,12.1],[-1.8,2.5],[-15.1,15.1]] # -2.0 想不显示roof -1.8
+  # 1.4m
   every_frame: 5
   vis_freq: 5 # 一般是every_frame的整数倍
   vis_inside_freq: 29 # 30 29
   mesh_freq: 50
-  ckpt_freq: 50 # 500 200 600
+  ckpt_freq: 400 # 500 200 600
   keyframe_every: 50 #和关键帧密度有关50  20 30 
   save_selected_keyframes_info: True # True
   mapping_window_size: 10 # 5 10
@@ -48,8 +40,8 @@ mapping: #更改
   # no_vis_on_first_frame: False # False True
   # color_refine: False # True False global color 优化的处理 默认开 测试关闭
 data:
-  input_folder: Datasets/TartanAir/office/Easy/P000 #Datasets/tcsvt/whole-floor/W2/glass
-  output: output/tartanair/office/P000 # mesh512nocolorefine
+  input_folder: Datasets/TartanAir/office/Easy/P001 #Datasets/tcsvt/whole-floor/W2/glass
+  output: output/tartanair/office/P001 # nope nonormnerf2
 cam:  #NOTE: intrinsic is different per scene in TUM e.g: Scene01
   H: 480 # 480 375
   W: 640 # 640 1242

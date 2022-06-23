@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import trimesh
 from packaging import version
 from src.utils.datasets import get_dataset
-
+# -*- coding:utf-8 -*-
 
 class Mesher(object):
 
@@ -30,10 +30,10 @@ class Mesher(object):
         self.scale = cfg['scale']
         self.occupancy = cfg['occupancy']
         
-        self.resolution = cfg['meshing']['resolution']
+        self.resolution = cfg['meshing']['resolution'] #几何的精细程度
         self.level_set = cfg['meshing']['level_set']
         self.clean_mesh_bound_scale = cfg['meshing']['clean_mesh_bound_scale']
-        self.remove_small_geometry_threshold = cfg['meshing']['remove_small_geometry_threshold']
+        self.remove_small_geometry_threshold = cfg['meshing']['remove_small_geometry_threshold'] # 调？
         self.color_mesh_extraction_method = cfg['meshing']['color_mesh_extraction_method']
         self.get_largest_components = cfg['meshing']['get_largest_components']
         self.depth_test = cfg['meshing']['depth_test']
@@ -370,8 +370,8 @@ class Mesher(object):
             color (bool, optional): whether to extract colored mesh. Defaults to True.
             clean_mesh (bool, optional): whether to clean the output mesh 
                                         (remove outliers outside the convexhull and small geometry noise). 
-                                        Defaults to True.
-            get_mask_use_all_frames (bool, optional): 
+                                        Defaults to True. 可以调吗
+            get_mask_use_all_frames (bool, optional): #默认replica才打开
                 whether to use all frames or just keyframes when getting the seen/unseen mask. Defaults to False.
         """
         with torch.no_grad():
@@ -500,7 +500,7 @@ class Mesher(object):
                 else:
                     new_components = []
                     for comp in components:
-                        if comp.area > self.remove_small_geometry_threshold * self.scale * self.scale:
+                        if comp.area > self.remove_small_geometry_threshold * self.scale * self.scale: #只有大于阈值才保留
                             new_components.append(comp)
                     mesh = trimesh.util.concatenate(new_components)
                 vertices = mesh.vertices

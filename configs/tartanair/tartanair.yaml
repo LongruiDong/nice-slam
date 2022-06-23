@@ -35,6 +35,8 @@ cam:  #NOTE: intrinsic is different per scene in TUM e.g: Scene01
   # crop_edge: 0 #8
   # crop_size: [384,512]
   # distortion: [0.2624, -0.9531, -0.0054, 0.0026, 1.1633]
+  depth_trunc: 20.0 # add for limit bound discard larger depth
+  sky_depth: 10000 #m
 # data:
 #   input_folder: Datasets/Apartment
 #   output: output/Apartment

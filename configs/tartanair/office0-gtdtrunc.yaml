@@ -6,11 +6,11 @@ grid_len: #对于office0
   color: 0.16
   bound_divisable: 0.32
 tracking:
-  gt_camera: False #? True False
+  gt_camera: True #? True False
  #? True False
 meshing: #这些参数要调整
   level_set: 0
-  resolution: 256 # 256 change to 512 for higher resolution geometry
+  resolution: 512 # 256 change to 512 for higher resolution geometry
   eval_rec: True #默认只对replica True False 测试打开
   clean_mesh: True # True False no clean
   depth_test: False
@@ -36,7 +36,7 @@ mapping: #更改
   vis_freq: 5 # 一般是every_frame的整数倍
   vis_inside_freq: 29 # 30 29
   mesh_freq: 50
-  ckpt_freq: 50 # 500 200 600
+  ckpt_freq: 600 # 500 200 600
   keyframe_every: 50 #和关键帧密度有关50  20 30 
   save_selected_keyframes_info: True # True
   mapping_window_size: 10 # 5 10
@@ -44,12 +44,13 @@ mapping: #更改
   iters_first: 1500
   iters: 60 # 测试增大迭代次数 60 120 600 1000
   # gtw nerf bound [[-26, 1],[-1,1],[-7.,11]]
-  BA: True # True #mapping是否一同优化位姿 False
+  BA: False # True #mapping是否一同优化位姿 False
   # no_vis_on_first_frame: False # False True
-  # color_refine: False # True False global color 优化的处理 默认开 测试关闭
+  color_refine: False # True False global color 优化的处理 默认开 测试关闭
+  # fix_color: True # 默认是False color decoder 在优化  为了debug 关掉这里 True
 data:
   input_folder: Datasets/TartanAir/office/Easy/P000 #Datasets/tcsvt/whole-floor/W2/glass
-  output: output/tartanair/office/P000 # mesh512nocolorefine
+  output: output/tartanair/office/P000-gtmesh512nocolorefine-dtr20 # nope nonormnerf2
 cam:  #NOTE: intrinsic is different per scene in TUM e.g: Scene01
   H: 480 # 480 375
   W: 640 # 640 1242
@@ -61,5 +62,5 @@ cam:  #NOTE: intrinsic is different per scene in TUM e.g: Scene01
   # crop_edge: 0 #8
   # crop_size: [384,512]
   # distortion: [0.2624, -0.9531, -0.0054, 0.0026, 1.1633]
-  depth_trunc: -1 # add for limit bound discard larger depth 20.0
+  depth_trunc: 20.0 # add for limit bound discard larger depth 20.0 -1
   sky_depth: 10000

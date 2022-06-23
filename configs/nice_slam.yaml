@@ -13,13 +13,13 @@ grid_len:
 pretrained_decoders:
   coarse: pretrained/coarse.pt
   middle_fine: pretrained/middle_fine.pt # one ckpt contain both middle and fine
-meshing:
+meshing: #这些参数是否根据场景scale来调整
   level_set: 0
   resolution: 256 # change to 512 for higher resolution geometry
   eval_rec: False
   clean_mesh: True
   depth_test: False
-  mesh_coarse_level: False
+  mesh_coarse_level: False # ?
   clean_mesh_bound_scale: 1.02
   get_largest_components: False
   color_mesh_extraction_method: direct_point_query
@@ -88,7 +88,7 @@ mapping:
       fine_lr: 0.005
       color_lr: 0.0
     color:
-      decoders_lr: 0.005
+      decoders_lr: 0.005 #color 的decoder
       coarse_lr: 0.0
       middle_lr: 0.005 #最后stage优化时 要对 middle fine 也要优化
       fine_lr: 0.005
@@ -102,10 +102,12 @@ cam:
   cy: 339.5
   png_depth_scale: 6553.5 #for depth image in png format
   crop_edge: 0
+  depth_trunc: -1 # add for limit bound discard larger depth
+  sky_depth: -1
 rendering:
-  N_samples: 32
-  N_surface: 16
-  N_importance: 0
+  N_samples: 32 #N_strat
+  N_surface: 16 #在深度周围
+  N_importance: 0 #为啥是0 nerf里是有这一步 hirecial 采样吧
   lindisp: False
   perturb: 0.0
 data:

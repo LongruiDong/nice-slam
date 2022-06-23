@@ -314,13 +314,13 @@ class NICE(nn.Module):
             Output occupancy/color in different stage.
         """
         device = f'cuda:{p.get_device()}'
-        if stage == 'coarse':
+        if stage == 'coarse': #那么这里就是对应Lc
             occ = self.coarse_decoder(p, c_grid)
             occ = occ.squeeze(0)
             raw = torch.zeros(occ.shape[0], 4).to(device).float()
-            raw[..., -1] = occ
+            raw[..., -1] = occ # [...,-1]
             return raw
-        elif stage == 'middle':
+        elif stage == 'middle': #这里不是只拿出middle 那之后的怎么生成fine depth?
             middle_occ = self.middle_decoder(p, c_grid)
             middle_occ = middle_occ.squeeze(0)
             raw = torch.zeros(middle_occ.shape[0], 4).to(device).float()

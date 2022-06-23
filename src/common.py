@@ -107,8 +107,8 @@ def select_uv(i, j, n, depth, color, device='cuda:0'):
     # color = color[indices]  # (n,3)
     # return i, j, depth, color
     depth = depth.reshape(-1)
-    color = color.reshape(-1, 3)
-    finind = (depth<600).nonzero().reshape(-1) # 有限深度的总索引 (n) 655.35
+    color = color.reshape(-1, 3) # sky==0
+    finind = (depth>0).nonzero().reshape(-1) # 有限深度的总索引depth<600 (n) 655.35
     indices0 = torch.randint(finind.shape[0], (n,), device=device)
     indices0 = indices0.clamp(0, finind.shape[0])
     indices1 = finind[indices0] # 对应的原始index
@@ -171,7 +171,7 @@ def get_samples(H0, H1, W0, W1, n, H, W, fx, fy, cx, cy, c2w, depth, color, devi
     i, j, sample_depth, sample_color = get_sample_uv( # 先采样n个像素 对应的下标 深度 颜色 这块不会有我呢提 和 Bound无关
         H0, H1, W0, W1, n, depth, color, device=device)
     rays_o, rays_d = get_rays_from_uv(i, j, c2w, H, W, fx, fy, cx, cy, device)
-    return rays_o, rays_d, sample_depth, sample_color
+    return rays_o, rays_d, sample_depth, sample_color, i, j #增加返回采样点坐标 for debug
 
 
 def quad2rotation(quad):

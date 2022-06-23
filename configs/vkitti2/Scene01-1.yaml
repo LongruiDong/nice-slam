@@ -1,14 +1,79 @@
 inherit_from: configs/vkitti2/vkitti2.yaml
 tracking:
   gt_camera: True #? True False
+grid_len: #对于office0
+  coarse: 6 # 2 4 5 6
+  middle: 0.9 # 0.32 0.64 0.9
+  fine: 0.5 #0.16 0.32 0.5
+  color: 0.5 
+  bound_divisable: 0.9 # 0.32 0.9 1.8
+meshing: #这些参数要调整
+  level_set: 0
+  resolution: 256 # change to 512 for higher resolution geometry
+  eval_rec: True
+  clean_mesh: False # True no clean
+  depth_test: False
+  mesh_coarse_level: False
+  clean_mesh_bound_scale: 1.02
+  get_largest_components: False
+  color_mesh_extraction_method: direct_point_query
+  remove_small_geometry_threshold: 0.5 # 0.2 0.5 
 mapping: #更改
-  bound: [[-200.0,200.0],[-50.0,280.0],[-350.0,350.0]]  #[[-142.0,6.8],[-5.0,20.0],[-5.0,318.0]]
-  marching_cubes_bound: [[-60.0,20.0],[-25.0,20.0],[-10.0,60.0]]
+  no_vis_on_first_frame: False # True
+  no_mesh_on_first_frame: False
+  no_log_on_first_frame: False
+  # bound: [[3.8,275.2],[-119.2,-110.9],[-72.1,107.0]]  # depth25
+  # marching_cubes_bound: [[3.8,275.2],[-119.2,-110.9],[-72.1,107.0]]
+  bound: [[3.8,306.1],[-124.9,-110.9],[-95.7,133.5]]  # depth50 
+  marching_cubes_bound: [[3.8,306.1],[-120.9,-110.9],[-95.7,133.5]] # 这里可以把-124.9 减小一些 去掉顶部 to try
+  # bound: [[3.8,367.6],[-128.4,-110.9],[-95.7,166.8]]  # depth100
+  # marching_cubes_bound: [[3.8,367.6],[-128.4,-110.9],[-95.7,166.8]]
+  # bound: [[3.8,437.1],[-136.1,-110.0],[-106.0,277.1]]  # depth200 
+  # marching_cubes_bound: [[3.8,437.1],[-136.1,-110.0],[-106.0,277.1]]
   # gtw nerf bound [[-137.06747, 2.727682],[-0.48823172,9.582563],[0.,214.5813]]
-  BA: False # True #mapping是否一同优化位姿
+  BA: False # True  False#mapping是否一同优化位姿
+  every_frame: 5 #? mapping的频率 1 10 3
+  vis_freq: 1 #当前帧是否要可始化中间render结果  1 或者是 every_frame的整数倍
+  vis_inside_freq: 19 # 优化中每几步进行可视化
+  mesh_freq: 5
+  ckpt_freq: 30
+  keyframe_every: 30 #和关键帧密度有关 50 30 
+  mapping_window_size: 10 # 20 10
+  pixels: 6000 #被用来优化的图像上的像素数吧
+  iters_first: 1200 # 1500 1200
+  iters: 60 #60  80 160 1000 想让每一帧 coarse的优化都更久一些 
+  lr_first_factor: 5 #
+  lr_factor: 1 #初始化之后 因子1 即不再扩大
+  middle_iter_ratio: 0.4
+  fine_iter_ratio: 0.6 #0.6 0.4 测试 初始化时 不做fine 
+  stage:
+    coarse:
+      decoders_lr: 0.0
+      coarse_lr: 0.001 # 0.001 0.002
+      middle_lr: 0.0
+      fine_lr: 0.0
+      color_lr: 0.0
+    middle:
+      decoders_lr: 0.0
+      coarse_lr: 0.0
+      middle_lr: 0.1
+      fine_lr: 0.0
+      color_lr: 0.0
+    fine:
+      decoders_lr: 0.0
+      coarse_lr: 0.0
+      middle_lr: 0.005
+      fine_lr: 0.005
+      color_lr: 0.0
+    color:
+      decoders_lr: 0.005 #0.005
+      coarse_lr: 0.0
+      middle_lr: 0.005 #最后stage优化时 要对 middle fine 也要优化 0.005 测试初始化时也关掉 geo
+      fine_lr: 0.005
+      color_lr: 0.005
 data:
   input_folder: Datasets/vkitti2/Scene01/clone #Datasets/TUM_RGBD/rgbd_dataset_freiburg1_desk
-  output: output/vkitti2/Scene01-maskdepth1 #output/TUM_RGBD/rgbd_dataset_freiburg1_desk
+  output: output/vkitti2/Scene01bdtr50dtr50-gt #-gtpose
 cam:  #NOTE: intrinsic is different per scene in TUM e.g: Scene01
   H: 375 # 480 375
   W: 1242 # 640 1242
@@ -17,6 +82,8 @@ cam:  #NOTE: intrinsic is different per scene in TUM e.g: Scene01
   cx: 620.5 #318.6
   cy: 187 #255.3
   png_depth_scale: 100 #设置 https://europe.naverlabs.com/research/computer-vision/proxy-virtual-worlds-vkitti-2/
-  crop_edge: 0 #8
+  # crop_edge: 0 #8
   # crop_size: [384,512]
   # distortion: [0.2624, -0.9531, -0.0054, 0.0026, 1.1633]
+  sky_depth: 655.0 #m 655.35
+  depth_trunc: 50.0 # add for limit bound discard larger depth 50.0 -1

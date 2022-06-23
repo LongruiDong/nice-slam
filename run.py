@@ -1,6 +1,6 @@
 import argparse
 import random
-
+# -*- coding:utf-8 -*-
 import numpy as np
 import torch
 

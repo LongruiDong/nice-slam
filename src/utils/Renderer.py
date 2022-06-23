@@ -1,6 +1,6 @@
 import torch
 from src.common import get_rays, raw2outputs_nerf_color, sample_pdf
-
+# -*- coding:utf-8 -*-
 
 class Renderer(object):
     def __init__(self, cfg, args, slam, points_batch_size=500000, ray_batch_size=100000):
@@ -11,7 +11,7 @@ class Renderer(object):
         self.perturb = cfg['rendering']['perturb']
         self.N_samples = cfg['rendering']['N_samples']
         self.N_surface = cfg['rendering']['N_surface']
-        self.N_importance = cfg['rendering']['N_importance']
+        self.N_importance = cfg['rendering']['N_importance'] #用处是啥
 
         self.scale = cfg['scale']
         self.occupancy = cfg['occupancy']
@@ -46,7 +46,7 @@ class Renderer(object):
             mask = mask_x & mask_y & mask_z
 
             pi = pi.unsqueeze(0)
-            if self.nice:
+            if self.nice: #注意这里stage
                 ret = decoders(pi, c_grid=c, stage=stage)
             else:
                 ret = decoders(pi, c_grid=None)

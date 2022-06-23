@@ -206,7 +206,7 @@ def evaluate_ate(first_list, second_list, plot="", _args=""):
 
         label = "difference"
         for (a, b), (x1, y1, z1), (x2, y2, z2) in zip(matches, first_xyz.transpose().A, second_xyz_aligned.transpose().A):
-            if a%10==0: # 5 10
+            if a%20==0: # 5 10 20
                 ax.plot([x1,x2],[z1,z2],'-',color="red",label=label) #y1,y2
             label = ""
         ax.legend(fontsize=20)# 设置图例字体大小
@@ -235,7 +235,7 @@ def evaluate(poses_gt, poses_est, plot):
     poses_gt = poses_gt.cpu().numpy()
     poses_est = poses_est.cpu().numpy()
 
-    N = 250 #poses_gt.shape[0] 700 650 510 500 490 480 470 460 450 400 300 183 163
+    N = poses_gt.shape[0] #poses_gt.shape[0] 700 650 510 500 490 480 470 460 450 400 300 183 163
     poses_gt = dict([(i, poses_gt[i]) for i in range(N)])
     poses_est = dict([(i, poses_est[i]) for i in range(N)])
 

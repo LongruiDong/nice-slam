@@ -95,6 +95,8 @@ class BaseDataset(Dataset):
             self.input_folder = args.input_folder
 
         self.crop_edge = cfg['cam']['crop_edge']
+        self.depth_trunc = cfg['cam']['depth_trunc'] #深度截断
+        self.sky_depth = cfg['cam']['sky_depth'] #clip需要
 
     def __len__(self):
         return self.n_img
@@ -105,18 +107,20 @@ class BaseDataset(Dataset):
         color_data = cv2.imread(color_path)
         if '.png' in depth_path:
             depth_data = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED)
+            if self.sky_depth > 0:
+                depth_data = np.clip(depth_data, 0, self.sky_depth*self.png_depth_scale)
         elif '.npy' in depth_path: #对于tartanqir来说 gt depth 保存真实数值 m 0~ 10000（infinite）
             depth_data = np.load(depth_path)
             # 实际上给的深度是有大于 10000 即使是office 所以先clip吧
             depth_data = np.clip(depth_data, 0, 10000)
-            # 对于office0 76 82 83 上的3个外点做插值处理
-            if index == 76 or index == 82 or index == 83:
-                qx, qy = np.argwhere(depth_data>30)[0]
-                print('bf interp, max: {}'.format(np.max(depth_data)))
-                print('depth[{}, {}] = {}'.format(qx, qy, depth_data[qx, qy]))
-                # 在 [qx, qy]处进行双线性插值
-                depth_data = bilinear_interp(depth_data, qx, qy)
-                print('aft interp, max: {}'.format(np.max(depth_data)))
+            # # 对于office0 76 82 83 上的3个外点做插值处理
+            # if index == 76 or index == 82 or index == 83:
+            #     qx, qy = np.argwhere(depth_data>30)[0]
+            #     print('bf interp, max: {}'.format(np.max(depth_data)))
+            #     print('depth[{}, {}] = {}'.format(qx, qy, depth_data[qx, qy]))
+            #     # 在 [qx, qy]处进行双线性插值
+            #     depth_data = bilinear_interp(depth_data, qx, qy)
+            #     print('aft interp, max: {}'.format(np.max(depth_data)))
         elif '.exr' in depth_path:
             depth_data = readEXR_onlydepth(depth_path)
         if self.distortion is not None:
@@ -127,10 +131,25 @@ class BaseDataset(Dataset):
         color_data = cv2.cvtColor(color_data, cv2.COLOR_BGR2RGB)
         color_data = color_data / 255.
         depth_data = depth_data.astype(np.float32) / self.png_depth_scale
+        if self.sky_depth > 0:
+            depth_data = np.clip(depth_data, 0, self.sky_depth)
+            depth_data1 = copy.deepcopy(depth_data)
+            depth_data1[depth_data >= self.sky_depth] = 0.0 # 直接让无穷远的深度为0 ！
+            depth_data = copy.deepcopy(depth_data1) 
+            if index==0:
+                print('clip depth at: ',self.sky_depth)
+                # print('aft clip, max: {}'.format(np.max(depth_data)))
+                
+        if self.depth_trunc > 0:
+            if index==0:
+                print('trunc depth at: ',self.depth_trunc)
+            depth_data1 = copy.deepcopy(depth_data)
+            depth_data1[depth_data > self.depth_trunc] = 0.0
+            depth_data = copy.deepcopy(depth_data1)
         H, W = depth_data.shape
         color_data = cv2.resize(color_data, (W, H))
         color_data = torch.from_numpy(color_data)
-        depth_data = torch.from_numpy(depth_data)*self.scale
+        depth_data = torch.from_numpy(depth_data)*self.scale #场景深度×尺度
         if self.crop_size is not None:
             # follow the pre-processing step in lietorch, actually is resize
             color_data = color_data.permute(2, 0, 1)
@@ -146,7 +165,7 @@ class BaseDataset(Dataset):
             color_data = color_data[edge:-edge, edge:-edge]
             depth_data = depth_data[edge:-edge, edge:-edge]
         pose = self.poses[index]
-        pose[:3, 3] *= self.scale
+        pose[:3, 3] *= self.scale #和深度x同一尺度因子
         return index, color_data.to(self.device), depth_data.to(self.device), pose.to(self.device)
 
 
@@ -158,20 +177,54 @@ class Replica(BaseDataset):
             glob.glob(f'{self.input_folder}/results/frame*.jpg'))
         self.depth_paths = sorted(
             glob.glob(f'{self.input_folder}/results/depth*.png'))
-        self.n_img = len(self.color_paths)
+        self.n_img = len(self.color_paths) # 301 len(self.color_paths) #测试观测不够时 的fusion效果
+        print('imagelen: {}'.format(self.n_img))
         self.load_poses(f'{self.input_folder}/traj.txt')
+        self.plot_traj()
 
     def load_poses(self, path):
         self.poses = []
         with open(path, "r") as f:
             lines = f.readlines()
+        inv_pose = None
         for i in range(self.n_img):
             line = lines[i]
             c2w = np.array(list(map(float, line.split()))).reshape(4, 4)
+            # #测试首帧归一化
+            # if inv_pose is None: # 首帧位姿归I 但是好像只有tum做了归一化处理 why
+            #     inv_pose = np.linalg.inv(c2w) #T0w
+            #     c2w = np.eye(4)
+            # else:
+            #     c2w = inv_pose@c2w # T0w Twi = T0i
             c2w[:3, 1] *= -1
             c2w[:3, 2] *= -1
             c2w = torch.from_numpy(c2w).float()
             self.poses.append(c2w)
+    
+    # 也画出轨迹 想看看bound to do
+    def plot_traj(self):
+        self.trajzx = []
+        for i in range(len(self.poses)):
+            c2w = self.poses[i].numpy()
+            if (True in np.isinf(c2w)) or (True in np.isnan(c2w)): #scannet里 会有-inf
+                continue
+            self.trajzx.append([c2w[0,3], c2w[1,3], c2w[2,3]]) # (x,y,z)
+        traj = np.array(self.trajzx) # n,3
+        # 输出 xyz 的区域
+        print('x y z min:\n', traj.min(axis=0))
+        print('x y z max:\n', traj.max(axis=0))
+        import matplotlib.pyplot as plt
+        fig = plt.figure()
+        plt.plot(traj[:,0],traj[:,2], linestyle='dashed',c='k') # x,z
+        # plt.plot(estposes[:, 0], estposes[:, 1],c='#ff7f0e')
+        plt.xlabel('x (m)')
+        plt.ylabel('z (m)')
+        plt.legend(['Ground Truth'])
+        # plt.title(title)
+
+        plt.axis('equal')
+        savefigname = os.path.join(self.input_folder, 'gtwnerf.pdf')    
+        plt.savefig(savefigname)
 
 
 class Azure(BaseDataset):
@@ -248,11 +301,13 @@ class ScanNet(BaseDataset):
             self.input_folder, 'depth', '*.png')), key=lambda x: int(os.path.basename(x)[:-4]))
         self.load_poses(os.path.join(self.input_folder, 'pose'))
         self.n_img = len(self.color_paths)
+        self.plot_traj()
 
     def load_poses(self, path):
         self.poses = []
         pose_paths = sorted(glob.glob(os.path.join(path, '*.txt')),
                             key=lambda x: int(os.path.basename(x)[:-4]))
+        inv_pose = None
         for pose_path in pose_paths:
             with open(pose_path, "r") as f:
                 lines = f.readlines()
@@ -260,11 +315,42 @@ class ScanNet(BaseDataset):
             for line in lines:
                 l = list(map(float, line.split(' ')))
                 ls.append(l)
-            c2w = np.array(ls).reshape(4, 4)
+            c2w = np.array(ls).reshape(4, 4) #所以scannet原始位姿是世界系
+            #测试首帧归一化
+            if inv_pose is None: # 首帧位姿归I 但是好像只有tum做了归一化处理 why
+                inv_pose = np.linalg.inv(c2w) #T0w
+                c2w = np.eye(4)
+            else:
+                c2w = inv_pose@c2w # T0w Twi = T0i
             c2w[:3, 1] *= -1
             c2w[:3, 2] *= -1
             c2w = torch.from_numpy(c2w).float()
             self.poses.append(c2w)
+    
+    # 也画出轨迹 想看看bound to do
+    def plot_traj(self):
+        self.trajzx = []
+        for i in range(len(self.poses)):
+            c2w = self.poses[i].numpy()
+            if (True in np.isinf(c2w)) or (True in np.isnan(c2w)): #scannet里 会有-inf
+                continue
+            self.trajzx.append([c2w[0,3], c2w[1,3], c2w[2,3]]) # (x,y,z)
+        traj = np.array(self.trajzx) # n,3
+        # 输出 xyz 的区域
+        print('x y z min:\n', traj.min(axis=0))
+        print('x y z max:\n', traj.max(axis=0))
+        import matplotlib.pyplot as plt
+        fig = plt.figure()
+        plt.plot(traj[:,0],traj[:,2], linestyle='dashed',c='k') # x,z
+        # plt.plot(estposes[:, 0], estposes[:, 1],c='#ff7f0e')
+        plt.xlabel('x (m)')
+        plt.ylabel('z (m)')
+        plt.legend(['Ground Truth'])
+        # plt.title(title)
+
+        plt.axis('equal')
+        savefigname = os.path.join(self.input_folder, 'gtwnerf.pdf')    
+        plt.savefig(savefigname)
 
 
 class CoFusion(BaseDataset):
@@ -403,11 +489,11 @@ class vKITTI2(BaseDataset):
             line = lines[j] # 18个值 只要后16
             w2c = np.array(list(map(float, line.split())))[2:].reshape(4, 4) #Tiw
             c2w = np.linalg.inv(w2c) #Twi
-            if inv_pose is None: # 首帧位姿归I
-                inv_pose = w2c  # np.linalg.inv(c2w) #T0w
-                c2w = np.eye(4)
-            else:
-                c2w = inv_pose@c2w # T0w Twi = T0i
+            # if inv_pose is None: # 首帧位姿归I
+            #     inv_pose = w2c  # np.linalg.inv(c2w) #T0w
+            #     c2w = np.eye(4)
+            # else:
+            #     c2w = inv_pose@c2w # T0w Twi = T0i
             c2w[:3, 1] *= -1 # nerf-pytorch y和z取反 此操作（首帧对齐后）和完整的坐标系变换结果是等价 
             c2w[:3, 2] *= -1
             c2w = torch.from_numpy(c2w).float()
@@ -926,9 +1012,11 @@ class TartanAir(BaseDataset):
             raiseExceptions(True)
             
         pose_data = self.parse_list(pose_list)
-        pose_vecs = pose_data[:, 0:].astype(np.float64) # tx ty tz  x y z qw
+        # https://github.com/princeton-vl/DROID-SLAM/blob/main/evaluation_scripts/validate_tartanair.py#L93
+        # 若提前转换坐标 [1, 2, 0, 4, 5, 3, 6] ned -> xyz 效果和变换矩阵一样
+        pose_vecs = pose_data[:, [1, 2, 0, 4, 5, 3, 6]].astype(np.float64) # 0: tx ty tz  x y z qw
         pose_datar = self.parse_list(pose_listr)
-        pose_vecsr = pose_datar[:, 0:].astype(np.float64) # tx ty tz  x y z qw
+        pose_vecsr = pose_datar[:, [1, 2, 0, 4, 5, 3, 6]].astype(np.float64) # tx ty tz  x y z qw
 
         images, poses, depths, intrinsics = [], [], [], []
         inv_pose = None
@@ -937,7 +1025,7 @@ class TartanAir(BaseDataset):
                              [1, 0, 0, 0],
                              [0, 0, 0, 1] 
         ]) #从tartanair坐标系 到标准相机系
-        print('T_rectned:\n',T_rectb)
+        # print('T_rectned:\n',T_rectb)
         T_brect = np.linalg.inv(T_rectb)
         for i in range(pose_vecs.shape[0]):
             frameid = '%06d' % i
@@ -954,12 +1042,12 @@ class TartanAir(BaseDataset):
             r2l = w2l.dot(r2w) # Tlr
             # print('Tlr: \n',r2l) #验证gt pose是否stereo 是rectify 应该只有y上的平移 通过验证
             # 转为校正相机系 Trectb Twb Tbrect
-            c2w = (T_rectb.dot(b2w)).dot(T_brect)
-            if inv_pose is None: # 首帧位姿归I 但是好像只有tum做了归一化处理 why
-                inv_pose = np.linalg.inv(c2w) #T0w
-                c2w = np.eye(4)
-            else:
-                c2w = inv_pose@c2w # T0w Twi = T0i
+            c2w = b2w # (T_rectb.dot(b2w)).dot(T_brect)
+            # if inv_pose is None: # 首帧位姿归I 但是好像只有tum做了归一化处理 why
+            #     inv_pose = np.linalg.inv(c2w) #T0w
+            #     c2w = np.eye(4)
+            # else:
+            #     c2w = inv_pose@c2w # T0w Twi = T0i
             c2w[:3, 1] *= -1
             c2w[:3, 2] *= -1
             c2w = torch.from_numpy(c2w).float()

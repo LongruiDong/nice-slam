@@ -40,6 +40,9 @@ class Tracker(object):
         self.mapping_cnt = slam.mapping_cnt
         self.shared_decoders = slam.shared_decoders
         self.estimate_c2w_list = slam.estimate_c2w_list
+        # 增加记录每次迭代时在当前帧选择的点的坐标
+        self.slecti = torch.zeros(0,)
+        self.slectj = torch.zeros(0,)
 
         self.cam_lr = cfg['tracking']['lr']
         self.device = cfg['tracking']['device']
@@ -65,7 +68,7 @@ class Tracker(object):
             self.frame_reader, batch_size=1, shuffle=False, num_workers=1)
         self.visualizer = Visualizer(freq=cfg['tracking']['vis_freq'], inside_freq=cfg['tracking']['vis_inside_freq'],
                                      vis_dir=os.path.join(self.output, 'vis' if 'Demo' in self.output else 'tracking_vis'),
-                                     renderer=self.renderer, verbose=self.verbose, device=self.device)
+                                     renderer=self.renderer, verbose=self.verbose, depth_trunc=cfg['cam']['depth_trunc'], device=self.device)
         self.H, self.W, self.fx, self.fy, self.cx, self.cy = slam.H, slam.W, slam.fx, slam.fy, slam.cx, slam.cy
 
     def optimize_cam_in_batch(self, camera_tensor, gt_color, gt_depth, batch_size, optimizer):
@@ -88,8 +91,10 @@ class Tracker(object):
         c2w = get_camera_from_tensor(camera_tensor)
         Wedge = self.ignore_edge_W
         Hedge = self.ignore_edge_H #frame 25这里 get_samples全是空的返回
-        batch_rays_o, batch_rays_d, batch_gt_depth, batch_gt_color = get_samples( #(n,3) (n,3) (n) (n,3)
+        batch_rays_o, batch_rays_d, batch_gt_depth, batch_gt_color, selecti, selectj = get_samples( #(n,3) (n,3) (n) (n,3)
             Hedge, H-Hedge, Wedge, W-Wedge, batch_size, H, W, fx, fy, cx, cy, c2w, gt_depth, gt_color, self.device)
+        self.slecti = selecti #记录
+        self.slectj = selectj
         if self.nice:
             # should pre-filter those out of bounding box depth value
             with torch.no_grad():
@@ -188,7 +193,8 @@ class Tracker(object):
                 c2w = gt_c2w
                 if not self.no_vis_on_first_frame:
                     self.visualizer.vis(
-                        idx, 0, gt_depth, gt_color, c2w, self.c, self.decoders)
+                        idx, 0, gt_depth, gt_color, c2w, self.c, self.decoders,
+                        selecti=self.slecti, selectj=self.slectj)
 
             else:
                 gt_camera_tensor = get_tensor_from_camera(gt_c2w)
@@ -230,7 +236,8 @@ class Tracker(object):
                         camera_tensor = torch.cat([quad, T], 0).to(self.device)
 
                     self.visualizer.vis(
-                        idx, cam_iter, gt_depth, gt_color, camera_tensor, self.c, self.decoders)
+                        idx, cam_iter, gt_depth, gt_color, camera_tensor, self.c, self.decoders,
+                        selecti=self.slecti, selectj=self.slectj)
 
                     loss = self.optimize_cam_in_batch( # frame 25(375,1242)
                         camera_tensor, gt_color, gt_depth, self.tracking_pixels, optimizer_camera)
@@ -241,9 +248,10 @@ class Tracker(object):
                     loss_camera_tensor = torch.abs(
                         gt_camera_tensor.to(device)-camera_tensor).mean().item()
                     if self.verbose:
-                        if cam_iter == self.num_cam_iters-1:
+                        # if cam_iter == self.num_cam_iters-1:
+                        if (cam_iter % self.visualizer.inside_freq == 0) and (cam_iter>0): # (idx % self.visualizer.freq == 0) and 
                             print(
-                                f'Re-rendering loss: {initial_loss:.2f}->{loss:.2f} ' +
+                                f'T_iter {cam_iter:d}, Re-rendering loss: {initial_loss:.2f}->{loss:.2f} ' +
                                 f'camera tensor error: {initial_loss_camera_tensor:.4f}->{loss_camera_tensor:.4f}')
                     if loss < current_min_loss:
                         current_min_loss = loss

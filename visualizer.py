@@ -55,10 +55,14 @@ if __name__ == '__main__':
             estimate_c2w_list = ckpt['estimate_c2w_list']
             gt_c2w_list = ckpt['gt_c2w_list']
             N = ckpt['idx']
+            #拿出kf信息
+            # selected_keyframes=ckpt['selected_keyframes']
     estimate_c2w_list[:, :3, 3] /= scale
     gt_c2w_list[:, :3, 3] /= scale
     estimate_c2w_list = estimate_c2w_list.cpu().numpy()
     gt_c2w_list = gt_c2w_list.cpu().numpy()
+    # select_kfidx = selected_keyframes.keys()
+    # print('selsected_kfid: \n',select_kfidx)
 
     frontend = SLAMFrontend(output, init_pose=estimate_c2w_list[0], cam_scale=0.3,
                             save_rendering=args.save_rendering, near=0,
@@ -66,14 +70,14 @@ if __name__ == '__main__':
     os.makedirs(f'{output}/inputvis', exist_ok=True)
     # os.makedirs(f'{output}/depthhist', exist_ok=True)
     for i in tqdm(range(0, N+1)):
-        # show every second frame for speed up 2
-        if args.vis_input_frame and i % 1 == 0:
+        # show every second frame for speed up 2 1 5
+        if args.vis_input_frame and i % 2 == 0:
             idx, gt_color, gt_depth, gt_c2w = frame_reader[i]
             # if idx == 76:
             #     print('here')
             depth_np = gt_depth.numpy()
             # # 对于tartanair 会有深度值很大的异常值 但已经clip 0--10000
-            depth_np = np.clip(depth_np, 0 , 600)
+            # depth_np = np.clip(depth_np, 0 , 600)
             # depthvec = depth_np.reshape(-1,)
             # bands = int((depthvec.max()-0)/batch)+1
             # bins = np.arange(0,depthvec.max()+1,batch)
@@ -90,11 +94,14 @@ if __name__ == '__main__':
             #     plt.show()
             #     plt.pause(1)
             #     plt.cla()
-            depth_np = depth_np.astype(np.float)*100
-            depth_np = np.clip(depth_np, 0, 65535)
-            depth_np = depth_np.astype(np.uint16)
+            # depth_np = depth_np.astype(np.float)*100
+            # depth_np = np.clip(depth_np, 0, 65535)
+            # depth_np = depth_np.astype(np.uint16)
+            gt_alldepthv = np.unique(depth_np)
+            gt_alldepthv1 = gt_alldepthv[np.argsort(-gt_alldepthv)] #降序排列
+            secondmax_depth = gt_alldepthv1[1] # 次大值 保证不是sky 无限远
             color_np = (gt_color.numpy()*255).astype(np.uint8)
-            depth_np = depth_np/np.max(depth_np)*255
+            depth_np = depth_np/secondmax_depth*255 #np.max(depth_np)
             depth_np = np.clip(depth_np, 0, 255).astype(np.uint8)
             # 转为3通道
             depth_np = cv2.cvtColor(depth_np, cv2.COLOR_GRAY2RGB)
@@ -118,7 +125,7 @@ if __name__ == '__main__':
             frontend.update_pose(1, gt_c2w_list[i], gt=True)
         # the visualizer might get stucked if update every frame
         # with a long sequence (10000+ frames) 10 2
-        if i % 1 == 0:
+        if i % 10 == 0:
             frontend.update_cam_trajectory(i, gt=False)
             if not args.no_gt_traj:
                 frontend.update_cam_trajectory(i, gt=True)
@@ -126,6 +133,8 @@ if __name__ == '__main__':
     if args.save_rendering:
         time.sleep(1)
         os.system( # 30 10 4
-            f"/usr/bin/ffmpeg -f image2 -r 1 -pattern_type glob -i '{output}/tmp_rendering/*.jpg' -y {output}/vis.mp4")
-        os.system( # 30 10
-            f"/usr/bin/ffmpeg -f image2 -r 1 -pattern_type glob -i '{output}/inputvis/*.jpg' -y {output}/inrgbd.mp4")
+            f"/usr/bin/ffmpeg -f image2 -r 10 -pattern_type glob -i '{output}/tmp_rendering/*.jpg' -y {output}/vis.mp4")
+    if args.vis_input_frame:
+        time.sleep(1)
+        # os.system( # 30 10
+        #     f"/usr/bin/ffmpeg -f image2 -r 10 -pattern_type glob -i '{output}/inputvis/*.jpg' -y {output}/inrgbd.mp4")

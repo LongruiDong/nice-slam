@@ -1,5 +1,5 @@
 import os
-
+# -*- coding:utf-8 -*-
 import torch
 
 
@@ -27,7 +27,7 @@ class Logger(object):
             'estimate_c2w_list': self.estimate_c2w_list,
             'keyframe_list': keyframe_list,
             # 'keyframe_dict': keyframe_dict, # to save keyframe_dict into ckpt, uncomment this line
-            'selected_keyframes': selected_keyframes,
+            'selected_keyframes': selected_keyframes, #包含有关键帧id等信息
             'idx': idx,
         }, path, _use_new_zipfile_serialization=False)
 

@@ -20,36 +20,27 @@ meshing: #这些参数要调整
   color_mesh_extraction_method: direct_point_query
   remove_small_geometry_threshold: 0.2 # 0.2 0.4 增大阈值 想清理更多
 mapping: #更改
-  # bound: [[-37.3,4.3],[-1.9,4.1],[-23.,14.7]]
-  # marching_cubes_bound: [[-37.3,4.3],[-1.9,1.5],[-23.,14.7]] # y 3.7
-  # office0-sub norm nerf-style
-  # bound: [[-37.3,4.3],[-1.9,4.1],[-21.7,4.6]]
-  # marching_cubes_bound: [[-37.3,4.3],[-1.9,1.5],[-21.7,4.6]] # y 1.0 1.5
-  # # office0-sub no norm raw
-  # bound: [[-25.0,15.7],[-2.4,1.4],[-12.4,15.1]] #[[-20.3,15.7],[-2.4,1.4],[-12.4,15.1]]
-  # marching_cubes_bound: [[-20.3,15.7],[-2.4,1.4],[-12.4,15.1]]
-  # # office0 no norm raw
-  bound: [[-25.0,15.7],[-2.4,1.4],[-12.4,15.1]]
-  marching_cubes_bound: [[-25.0,15.7],[-1.8,1.4],[-12.4,15.1]] # -2.0 想不显示roof -1.8
-
+  # hos0  raw [[-1.4,28.4],[-16.1,-7.7],[-18.5,12.8]]
+  bound: [[-2.0,28.4],[-16.1,-4.8],[-20.0,15]]
+  marching_cubes_bound: [[-1.4,28.4],[-16.1,-7.7],[-18.5,12.8]] #[[0.0,23.0],[-8.6,-4.8],[-18.5,7]] # -9.2 想不显示roof -8.6
   every_frame: 5
   vis_freq: 5 # 一般是every_frame的整数倍
   vis_inside_freq: 29 # 30 29
   mesh_freq: 50
-  ckpt_freq: 50 # 500 200 600
+  ckpt_freq: 50 # 500 200 600 150 100
   keyframe_every: 50 #和关键帧密度有关50  20 30 
-  save_selected_keyframes_info: True # True
+  save_selected_keyframes_info: False # True
   mapping_window_size: 10 # 5 10
   pixels: 5000 #这是kfs总的像素数吧 
   iters_first: 1500
   iters: 60 # 测试增大迭代次数 60 120 600 1000
   # gtw nerf bound [[-26, 1],[-1,1],[-7.,11]]
   BA: True # True #mapping是否一同优化位姿 False
-  # no_vis_on_first_frame: False # False True
+  no_vis_on_first_frame: False # False True
   # color_refine: False # True False global color 优化的处理 默认开 测试关闭
 data:
-  input_folder: Datasets/TartanAir/office/Easy/P000 #Datasets/tcsvt/whole-floor/W2/glass
-  output: output/tartanair/office/P000 # mesh512nocolorefine
+  input_folder: Datasets/TartanAir/hospital/Easy/P001 #Datasets/tcsvt/whole-floor/W2/glass
+  output: output/tartanair/hospital/P001 #output/TUM_RGBD/rgbd_dataset_freiburg1_desk
 cam:  #NOTE: intrinsic is different per scene in TUM e.g: Scene01
   H: 480 # 480 375
   W: 640 # 640 1242

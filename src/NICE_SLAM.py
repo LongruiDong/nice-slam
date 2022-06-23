@@ -82,7 +82,7 @@ class NICE_SLAM():
         self.mapping_cnt = torch.zeros((1)).int()  # counter for mapping
         self.mapping_cnt.share_memory_()
         for key, val in self.shared_c.items():
-            val = val.to(self.cfg['mapping']['device'])
+            val = val.to(self.cfg['mapping']['device']) #在grid 很大时 会出现out of memory
             val.share_memory_()
             self.shared_c[key] = val
         self.shared_decoders = self.shared_decoders.to(
@@ -141,9 +141,10 @@ class NICE_SLAM():
         Args:
             cfg (dict): parsed config dict.
         """
+        print('raw config bound: \n',np.array(cfg['mapping']['bound']))
         # scale the bound if there is a global scaling factor
         self.bound = torch.from_numpy(
-            np.array(cfg['mapping']['bound'])*self.scale)
+            np.array(cfg['mapping']['bound'])*self.scale) #bound也会根据scle设置调整
         bound_divisable = cfg['grid_len']['bound_divisable']
         # enlarge the bound a bit to allow it divisable by bound_divisable 为啥要除以bound_divisable
         self.bound[:, 1] = (((self.bound[:, 1]-self.bound[:, 0]) /
@@ -192,7 +193,7 @@ class NICE_SLAM():
     def grid_init(self, cfg):
         """
         Initialize the hierarchical feature grids. 这个看看到底是怎么弄
-
+        grid_len 不受scale的参数影响
         Args:
             cfg (dict): parsed config dict.
         """
@@ -214,11 +215,12 @@ class NICE_SLAM():
             coarse_key = 'grid_coarse'
             coarse_val_shape = list(
                 map(int, (xyz_len*self.coarse_bound_enlarge/coarse_grid_len).tolist())) #由于coarse_bound_enlarge=coarse_grid_len 这里出来和xyzlen值类似 [17,8,13]
-            coarse_val_shape[0], coarse_val_shape[2] = coarse_val_shape[2], coarse_val_shape[0] #x 和 z互换 why
+            coarse_val_shape[0], coarse_val_shape[2] = coarse_val_shape[2], coarse_val_shape[0] #x 和 z互换 why ?
             self.coarse_val_shape = coarse_val_shape
             val_shape = [1, c_dim, *coarse_val_shape] #[1,32,13,8,7]
             coarse_val = torch.zeros(val_shape).normal_(mean=0, std=0.01) #地图 各voxel 0高斯初始化
             c[coarse_key] = coarse_val
+            print('grid_coarse: \n', val_shape)
 
         middle_key = 'grid_middle'
         middle_val_shape = list(map(int, (xyz_len/middle_grid_len).tolist())) # [53,26,40]
@@ -227,6 +229,7 @@ class NICE_SLAM():
         val_shape = [1, c_dim, *middle_val_shape] #[1,32,40,26,53]
         middle_val = torch.zeros(val_shape).normal_(mean=0, std=0.01)
         c[middle_key] = middle_val
+        print('grid_middle: \n', val_shape)
 
         fine_key = 'grid_fine'
         fine_val_shape = list(map(int, (xyz_len/fine_grid_len).tolist()))
@@ -235,6 +238,7 @@ class NICE_SLAM():
         val_shape = [1, c_dim, *fine_val_shape]
         fine_val = torch.zeros(val_shape).normal_(mean=0, std=0.0001)
         c[fine_key] = fine_val
+        print('grid_fine: \n', val_shape)
 
         color_key = 'grid_color'
         color_val_shape = list(map(int, (xyz_len/color_grid_len).tolist()))
@@ -243,6 +247,7 @@ class NICE_SLAM():
         val_shape = [1, c_dim, *color_val_shape]
         color_val = torch.zeros(val_shape).normal_(mean=0, std=0.01)
         c[color_key] = color_val
+        print('grid_color: \n', val_shape)
 
         self.shared_c = c
 
