@@ -39,10 +39,13 @@ def main():
     cfg = config.load_config(
         args.config, 'configs/nice_slam.yaml' if args.nice else 'configs/imap.yaml')
 
-    frame_reader = get_dataset(cfg, args, 1.0)
+    frame_reader = get_dataset(cfg, args, scale=cfg['scale']) #cfg['scale']
     n_img = len(frame_reader)
     pcd_combined = o3d.geometry.PointCloud() # 用于储存多帧合并后的点云
     count = 0
+    # 设置的尺度
+    use_scale = frame_reader.scale
+    print('use_scale: \t', use_scale)
     for idx, gt_color, gt_depth, gt_c2w in frame_reader:
         # if idx != 708: #debug 只看1帧 > 10 break
         #     if idx > 708:
@@ -52,7 +55,7 @@ def main():
         # if idx > 1000:
         #     break
         
-        if idx % 15 != 0 : #debug 间隔 10 15 30 60 100 
+        if idx % 1 != 0 : #debug 间隔 2 10 15 30 60 100 
             continue
         count = count+1
         print('read frame {}'.format(idx))
@@ -67,7 +70,7 @@ def main():
             # depth_raw = o3d.io.read_image(depthfile)
             # depth_data = np.clip(depth_data, 0, 65535) # vkitti2 原始数据uint16 全是整数 因为是cm单位 可以
             
-            depth_trunc = 25.0 #655 200 100 50 25
+            depth_trunc = 10.0 #655 200 100 50 25
             skydepth = depth_trunc # 65535
             # # for replica:
             # depth_trunc = 20.0 # 
@@ -77,7 +80,7 @@ def main():
             # 实际上给的深度是有大于 10000 即使是office 所以先clip吧
             depth_data = np.clip(depth_data, 0, 10000)
             skydepth = 10000
-            depth_trunc = 20.0 # 20 25 30
+            depth_trunc = 1000.0 # 20 25 30 100 1000
             savescale = 100.
             # # 对于office0 76 82 83 上的3个外点做插值处理
             # if idx == 76 or idx == 82 or idx == 83:
@@ -89,16 +92,18 @@ def main():
             #     print('aft interp, max: {}'.format(np.max(depth_data)))
             
         
-        depth_data = depth_data.astype(np.float32) / frame_reader.png_depth_scale #真实单位
+        depth_data = depth_data.astype(np.float32) / frame_reader.png_depth_scale * use_scale #真实单位
         # cv2.imwrite('tmpraw.png', (depth_data*frame_reader.png_depth_scale).astype(np.uint16)) #没有处理sky的深度    
         # skydepth = skydepth / frame_reader.png_depth_scale #单位 m
+        depth_trunc = depth_trunc*use_scale
+        skydepth = depth_trunc
         depth_data1 = copy.deepcopy(depth_data)
         # 对于深度中 sky的处理  depth_residual[gt_depth_np == 0.0] = 0.0
         # 对于office0 depth限制在 45mi之内就行
         depth_data1[depth_data > depth_trunc] = 0.0 #就0 即 不会被转为点云 float32 skydepth
         # 保存为tmp.png 为了uint16不损失小数 
         if savescale is None: # 非tartanair
-            savescale = frame_reader.png_depth_scale # 1. # 1 100
+            savescale = frame_reader.png_depth_scale / use_scale # 1. # 1 100
         depth_data2 = depth_data1*savescale
         cv2.imwrite('tmp.png', depth_data2.astype(np.uint16)) # np.float32 .astype(np.uint16)保存未16位 无符号png 会截断 这里已经是m了 就出现深度 阶段  不应该
         max_depth = np.max(depth_data)
@@ -193,7 +198,7 @@ def main():
     print('x y z max:\n', pcdarray.max(axis=0))
     #保存最终点云
     pcd_combined_down = pcd_combined.voxel_down_sample(voxel_size=0.15) # .voxel_down_sample(voxel_size=0.7) 0.4 0.15 0.2 0.01 0.02
-    # o3d.io.write_point_cloud(os.path.join(frame_reader.input_folder,"truncd-gtrawextrsub.ply"), pcd_combined_down)
+    o3d.io.write_point_cloud(os.path.join(frame_reader.input_folder,"truncd-gtrawextr.ply"), pcd_combined_down)
     mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(
     size=1.0, origin=[0, 0, 0]) #显示坐标系 1.0 20.0
     o3d.visualization.draw_geometries([pcd_combined_down, mesh_frame])

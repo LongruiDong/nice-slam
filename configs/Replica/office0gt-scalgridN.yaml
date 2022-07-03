@@ -1,0 +1,50 @@
+inherit_from: configs/Replica/replica.yaml
+scale: 3 # 深度和pose 平移都x此尺度1 3.5 4 5 测试 3
+grid_len: #对于office0
+  coarse: 6 # 2
+  middle: 0.96 # 0.32
+  fine: 0.48 #0.16
+  color: 0.48
+  bound_divisable: 0.96
+tracking:
+  gt_camera: True #? True False
+mapping:
+  bound: [[-5.5,5.9],[-6.7,5.4],[-4.7,5.3]]
+  marching_cubes_bound: [[-5.5,5.9],[-6.7,5.4],[-4.7,5.3]]
+  # bound: [[-2.4,3.4],[-3.3,2.9],[-3.7,2.4]] # nerf-dtyle my
+  # marching_cubes_bound: [[-2.4,3.4],[-3.3,2.9],[-3.7,2.4]]
+  # bound: [[-2.4,3.4],[-2.9,3.3],[-2.4,3.7]] # my1
+  # marching_cubes_bound: [[-2.4,3.4],[-2.9,3.3],[-2.4,3.7]]
+  
+  # my pcd nerf frame
+  # [[-2.0,2.4],[-1.8,3.2],[-1.8,1.2]]
+
+  # 首帧归一化后
+  # traj bound
+  # [[-0.6,1.7],[-0.8,1.2],[-1.1,1.3]]
+  # my pcd nerf frame
+  # [[-2.4,3.4],[-3.3,2.9],[-3.7,2.4]]
+  # no final transform
+  # [[-2.4,3.4],[-2.9,3.3],[-2.4,3.7]]
+
+  # # 原始坐标系 用于和原yaml参数对比 my2
+  # bound: [[-2.1,2.4],[-3.2,1.9],[-1.2,1.8]] # 
+  # marching_cubes_bound: [[-2.1,2.4],[-3.2,1.9],[-1.2,1.8]]
+  # trajbound 
+  # [[-0.6,1.1,[-2.2,0.4],[0.2,1.2]]
+  #scale3 makepcd 之后的bound
+  # bound: [[-6.1,7.2],[-9.5,5.5],[-3.5,5.4]] # 是原来的3倍啊。。
+  # marching_cubes_bound: [[-2.1,2.4],[-3.2,1.9],[-1.2,1.8]] 
+  BA: False # True #mapping是否一同优化位姿 False
+data:
+  input_folder: Datasets/Replica/office0
+  output: output/Replica/office0gt-scale3gridNimps # 只看前301帧
+rendering:
+  # N_samples: 128 #N_strat 32/    64 128 256
+  # N_surface: 32 #在深度周围 +-0.05D 再等距采样 16/ 32 64
+  # N_importance: 0 #为啥是0 nerf里是有这一步 hirecial 采样吧 测试打开
+  # lindisp: False
+  # perturb: 0.0
+  N_samples: 64 #N_strat 32/    64 128 256
+  N_surface: 32 #在深度周围 +-0.05D 再等距采样 16/ 32 64
+  N_importance: 64 #为啥是0 nerf里是有这一步 hirecial 采样吧 测试打开

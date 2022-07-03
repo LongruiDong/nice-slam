@@ -29,5 +29,5 @@ cam:
   fy: 600.0
   cx: 599.5
   cy: 339.5
-  png_depth_scale: 6553.5 #for depth image in png format
+  png_depth_scale: 6553.5 #for depth image in png format uint16 10m内
   crop_edge: 0

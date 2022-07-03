@@ -1,4 +1,5 @@
 inherit_from: configs/tartanair/tartanair.yaml
+scale: 0.4 # 深度和pose 平移都x此尺度 1/4 0.25 测试 bound也自适应乘尺度 0.25failed 0.3 0.5
 grid_len: #对于office0
   coarse: 2 # 2
   middle: 0.32 # 0.32
@@ -46,7 +47,7 @@ mapping: #更改
   # color_refine: False # True False global color 优化的处理 默认开 测试关闭
 data:
   input_folder: Datasets/TartanAir/hospital/Easy/P000 #Datasets/tcsvt/whole-floor/W2/glass
-  output: output/tartanair/hospital/P000gt-bdlarge4 #output/TUM_RGBD/rgbd_dataset_freiburg1_desk
+  output: output/tartanair/hospital/P000gt-bd4scale0d4 #output/TUM_RGBD/rgbd_dataset_freiburg1_desk
 cam:  #NOTE: intrinsic is different per scene in TUM e.g: Scene01
   H: 480 # 480 375
   W: 640 # 640 1242
@@ -60,9 +61,3 @@ cam:  #NOTE: intrinsic is different per scene in TUM e.g: Scene01
   # distortion: [0.2624, -0.9531, -0.0054, 0.0026, 1.1633]
   depth_trunc: -1 # add for limit bound discard larger depth 20.0
   sky_depth: 10000
-rendering:
-  N_samples: 32 #N_strat
-  N_surface: 16 #在深度周围 +-0.05D
-  N_importance: 0 #为啥是0 nerf里是有这一步 hirecial 采样吧 测试打开
-  # lindisp: False
-  # perturb: 0.0

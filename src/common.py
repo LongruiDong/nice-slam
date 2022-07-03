@@ -306,7 +306,7 @@ def get_rays(H, W, fx, fy, cx, cy, c2w, device):
     return rays_o, rays_d
 
 
-def normalize_3d_coordinate(p, bound):
+def normalize_3d_coordinate(p, bound): # 这和NDC一样吗？ 感觉不是吧
     """
     Normalize coordinate to [-1, 1], corresponds to the bounding box given.
 

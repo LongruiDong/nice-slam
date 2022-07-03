@@ -112,12 +112,12 @@ class Renderer(object):
         if N_surface > 0:
             if False:
                 # this naive implementation downgrades performance
-                gt_depth_surface = gt_depth.repeat(1, N_surface)
+                gt_depth_surface = gt_depth.repeat(1, N_surface) # H*W, N_surf
                 t_vals_surface = torch.linspace(
                     0., 1., steps=N_surface).to(device)
                 z_vals_surface = 0.95*gt_depth_surface * \
                     (1.-t_vals_surface) + 1.05 * \
-                    gt_depth_surface * (t_vals_surface)
+                    gt_depth_surface * (t_vals_surface) # H*W, N_surf 各列就是深度附近的0.05D区间采样后的深度
             else:
                 # since we want to colorize even on regions with no depth sensor readings,
                 # meaning colorize on interpolated geometry region,
