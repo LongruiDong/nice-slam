@@ -146,10 +146,10 @@ class NICE_SLAM():
         # scale the bound if there is a global scaling factor
         self.bound = torch.from_numpy(
             np.array(cfg['mapping']['bound'])*self.scale) #bound也会根据scle设置调整
-        bound_divisable = cfg['grid_len']['bound_divisable']
-        # enlarge the bound a bit to allow it divisable by bound_divisable 为啥要除以bound_divisable
+        bound_divisible = cfg['grid_len']['bound_divisible']
+        # enlarge the bound a bit to allow it divisible by bound_divisible 为啥要除以bound_divisable
         self.bound[:, 1] = (((self.bound[:, 1]-self.bound[:, 0]) /
-                            bound_divisable).int()+1)*bound_divisable+self.bound[:, 0]
+                            bound_divisible).int()+1)*bound_divisible+self.bound[:, 0]
         if self.nice: #2 level 和颜色 共用一个bound
             self.shared_decoders.bound = self.bound
             self.shared_decoders.middle_decoder.bound = self.bound
@@ -209,8 +209,8 @@ class NICE_SLAM():
         self.color_grid_len = color_grid_len
 
         c = {}
-        c_dim = cfg['model']['c_dim'] # map 每个voxel 32维
-        xyz_len = self.bound[:, 1]-self.bound[:, 0] #bound 各维度scale
+        c_dim = cfg['model']['c_dim']
+        xyz_len = self.bound[:, 1]-self.bound[:, 0]
 
         if self.coarse:
             coarse_key = 'grid_coarse'
