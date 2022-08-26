@@ -45,7 +45,7 @@ mapping:
   color_refine: True
   middle_iter_ratio: 0.4
   fine_iter_ratio: 0.6
-  every_frame: 5
+  every_frame: 5 # 每隔x帧进行mapping
   BA: True
   BA_cam_lr: 0.001
   fix_fine: True
@@ -57,7 +57,7 @@ mapping:
   vis_inside_freq: 25 #each iteration 
   mesh_freq: 50
   ckpt_freq: 500
-  keyframe_every: 50
+  keyframe_every: 50 # 成为kf的间隔
   mapping_window_size: 5
   w_color_loss: 0.2
   frustum_feature_selection: True
@@ -65,7 +65,7 @@ mapping:
   save_selected_keyframes_info: False
   lr_first_factor: 5 #
   lr_factor: 1 #初始化之后 因子1 即不再扩大
-  pixels: 1000
+  pixels: 1000 # 窗口内若干关键帧使用的总像素(ray)数 实际中每个kf中ray数目更少 1000/5=200
   iters_first: 1500
   iters: 60
   stage:
@@ -112,6 +112,7 @@ rendering:
   perturb: 0.0
 data:
   dim: 3
+  wnoise: False #使用噪声深度为输入
 model:
   c_dim: 32
   coarse_bound_enlarge: 2

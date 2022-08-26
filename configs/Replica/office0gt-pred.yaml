@@ -3,8 +3,9 @@ inherit_from: configs/Replica/replica.yaml
 tracking:
   gt_camera: True #? True False
 mapping:
-  bound: [[-5.5,5.9],[-6.7,5.4],[-4.7,5.3]]
-  marching_cubes_bound: [[-5.5,5.9],[-6.7,5.4],[-4.7,5.3]]
+  BA: False # True #mapping是否一同优化位姿 False
+  # bound: [[-5.5,5.9],[-6.7,5.4],[-4.7,5.3]]
+  # marching_cubes_bound: [[-5.5,5.9],[-6.7,5.4],[-4.7,5.3]]
   # bound: [[-2.4,3.4],[-3.3,2.9],[-3.7,2.4]] # nerf-dtyle my
   # marching_cubes_bound: [[-2.4,3.4],[-3.3,2.9],[-3.7,2.4]]
   # bound: [[-2.4,3.4],[-2.9,3.3],[-2.4,3.7]] # my1
@@ -26,15 +27,17 @@ mapping:
   # marching_cubes_bound: [[-2.1,2.4],[-3.2,1.9],[-1.2,1.8]]
   # trajbound 
   # [[-0.6,1.1,[-2.2,0.4],[0.2,1.2]]
-
-  BA: False # True #mapping是否一同优化位姿 False
-  iters_first: 2000 # 1500| 2000
-  iters: 100 # 测试增大迭代次数 60| 100 120
-  no_vis_on_first_frame: False # True
+  # (-8.93294, -10.4688, -6.42011), max: (8.83464, 10.1523, 4.79871)
+  # bound: [[-15.,15.4],[-17.2,14.9],[-11.,9.]] # mynoise
+  # marching_cubes_bound: [[-9.0,9.0],[-10.5,10.2],[-6.5,4.8]]
+  # dnet pred AxisAlignedBoundingBox: min: (-5.73091, -6.35704, -1.51472), max: (5.65161, 4.14253, 1.92978) dnet pred
+  bound: [[-9.,9],[-10.,8.],[-5.,5.]] # dnet pred
+  marching_cubes_bound: [[-6.5,6.5],[-6.5,4.5],[-2.5,2.5]]
 data:
   input_folder: Datasets/Replica/office0
-  output: output/Replica/office0gt-nodloss-2000-100 # 增大迭代次数
+  output: output/Replica/office0gt-predprune0-2 # prune
+  # wnoise: True #使用噪声深度为输入
 cam:
   # depth_trunc: -1 # add for limit bound discard larger depth
   # 增加根据dnet预测的深度的不确定性来prune pred depth
-  dstdv_cut_max: -1  # 对于office 实际最大值在0.35左右 0.25 0.2 0.15
+  dstdv_cut_max: 0.2  # 对于office 实际最大值在0.35左右 0.25 0.2 0.15

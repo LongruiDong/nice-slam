@@ -65,7 +65,7 @@ mapping:
   save_selected_keyframes_info: False
   lr_first_factor: 5
   lr_factor: 1
-  pixels: 5000
+  pixels: 5000 # 论文里是200每帧 这里等价于 5000/5=1000
   iters_first: 1500
   iters: 300
   imap_decoders_lr: 0.0002
@@ -103,6 +103,8 @@ cam:
   cy: 339.5
   png_depth_scale: 6553.5 #for depth image in png format
   crop_edge: 0
+  depth_trunc: -1 # add for limit bound discard larger depth
+  sky_depth: -1
 rendering:
   N_samples: 32
   N_surface: 0
@@ -111,6 +113,7 @@ rendering:
   perturb: 0.0
 data:
   dim: 3
+  wnoise: False #使用噪声深度为输入
 model:
   c_dim: 32
   coarse_bound_enlarge: 2

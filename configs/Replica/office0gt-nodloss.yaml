@@ -28,12 +28,15 @@ mapping:
   # [[-0.6,1.1,[-2.2,0.4],[0.2,1.2]]
 
   BA: False # True #mapping是否一同优化位姿 False
-  iters_first: 2000 # 1500| 2000
-  iters: 100 # 测试增大迭代次数 60| 100 120
-  no_vis_on_first_frame: False # True
+  iters_first: 1500 # 1500| 2000 4000
+  iters: 1000 # 测试增大迭代次数 60| 100 120 600 1000
+  # no_vis_on_first_frame: False # True
+  mapping_window_size: 5
+  pixels: 4096 # 窗口内若干关键帧使用的总像素(ray)数 实际中每个kf中ray数目更少 1000/5=200|  4096 1000*5=5000 2048*5=10240 4096*5=20480
+  vis_inside_freq: 200 # 30| 200 
 data:
   input_folder: Datasets/Replica/office0
-  output: output/Replica/office0gt-nodloss-2000-100 # 增大迭代次数
+  output: output/Replica/office0gt-nodloss-pix4096-f1500-it1k # 增大采样ray
 cam:
   # depth_trunc: -1 # add for limit bound discard larger depth
   # 增加根据dnet预测的深度的不确定性来prune pred depth

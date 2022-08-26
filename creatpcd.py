@@ -55,13 +55,18 @@ def main():
         # if idx > 1000:
         #     break
         
-        if idx % 1 != 0 : #debug 间隔 2 10 15 30 60 100 
+        if idx % 30 != 0 : #debug 间隔 2 10 15 30 60 100 
             continue
+        # if idx!=30: # idx/30 != 5: # 420 # 只看这帧 14 26
+        #     continue
         count = count+1
         print('read frame {}'.format(idx))
         
         rgbfile = frame_reader.color_paths[idx]
         depthfile = frame_reader.depth_paths[idx]
+        stdv_path = frame_reader.stdv_paths[idx]
+        # 读入不确定性 npy
+        stdv_data = np.load(stdv_path).astype(np.float32)
         color_data = cv2.imread(rgbfile) # uint8 
         # color_raw = o3d.io.read_image(rgbfile) # 1242 375 3
         savescale = None
@@ -80,7 +85,7 @@ def main():
             # 实际上给的深度是有大于 10000 即使是office 所以先clip吧
             depth_data = np.clip(depth_data, 0, 10000)
             skydepth = 10000
-            depth_trunc = 1000.0 # 20 25 30 100 1000
+            depth_trunc = 20.0 # 20 25 30 100 1000
             savescale = 100.
             # # 对于office0 76 82 83 上的3个外点做插值处理
             # if idx == 76 or idx == 82 or idx == 83:
@@ -100,7 +105,10 @@ def main():
         depth_data1 = copy.deepcopy(depth_data)
         # 对于深度中 sky的处理  depth_residual[gt_depth_np == 0.0] = 0.0
         # 对于office0 depth限制在 45mi之内就行
-        depth_data1[depth_data > depth_trunc] = 0.0 #就0 即 不会被转为点云 float32 skydepth
+        # depth_data1[depth_data > depth_trunc] = 0.0 #就0 即 不会被转为点云 float32 skydepth
+        # 按不去确定性来prune
+        stdmax = float(cfg['cam']['dstdv_cut_max'])
+        depth_data1[stdv_data > stdmax] = 0.0
         # 保存为tmp.png 为了uint16不损失小数 
         if savescale is None: # 非tartanair
             savescale = frame_reader.png_depth_scale / use_scale # 1. # 1 100
@@ -131,7 +139,7 @@ def main():
         gtpose = frame_reader.poses[idx].cpu().numpy() #Twc nerf frame SE3
         # http://www.open3d.org/docs/release/python_api/open3d.geometry.RGBDImage.html#open3d.geometry.RGBDImage.create_from_color_and_depth
         rgbd_image = o3d.geometry.RGBDImage.create_from_color_and_depth(
-            color_raw, depth_raw, depth_scale=savescale, depth_trunc=skydepth, convert_rgb_to_intensity=False)
+            color_raw, depth_raw, depth_scale=savescale, depth_trunc=55., convert_rgb_to_intensity=False)
         # 缩放深度1000.0 1.0 截断3.0 skydepth 到0 rgb 2 intensity True
         if idx == 0:
             print(rgbd_image) 
@@ -180,7 +188,7 @@ def main():
         #     pcd_combined += pcd_idx_w[pt_id] 
         pcd_combined += pcd_idx_w
         
-        # if count >= 2:
+        # if count >= 30:
         #     break
     
     # Flip it(to nerf style), otherwise the pointcloud will be upside down  
@@ -193,12 +201,12 @@ def main():
     # aabb.color = (1, 0, 0)
     pcdarray = np.asarray(pcd_combined.points)
     print('pcd shape: \n', pcdarray.shape) #(n,3)
-    # 输出 xyz 的区域
-    print('x y z min:\n', pcdarray.min(axis=0))
-    print('x y z max:\n', pcdarray.max(axis=0))
+    # # 输出 xyz 的区域
+    # print('x y z min:\n', pcdarray.min(axis=0))
+    # print('x y z max:\n', pcdarray.max(axis=0))
     #保存最终点云
-    pcd_combined_down = pcd_combined.voxel_down_sample(voxel_size=0.15) # .voxel_down_sample(voxel_size=0.7) 0.4 0.15 0.2 0.01 0.02
-    o3d.io.write_point_cloud(os.path.join(frame_reader.input_folder,"truncd-gtrawextr.ply"), pcd_combined_down)
+    pcd_combined_down = pcd_combined.voxel_down_sample(voxel_size=0.02) # .voxel_down_sample(voxel_size=0.7) 0.4 0.15 0.2 0.01 0.02
+    # o3d.io.write_point_cloud(os.path.join(frame_reader.input_folder,"truncd-gtrawextr.ply"), pcd_combined_down)
     mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(
     size=1.0, origin=[0, 0, 0]) #显示坐标系 1.0 20.0
     o3d.visualization.draw_geometries([pcd_combined_down, mesh_frame])

@@ -206,9 +206,10 @@ def evaluate_ate(first_list, second_list, plot="", _args=""):
 
         label = "difference"
         for (a, b), (x1, y1, z1), (x2, y2, z2) in zip(matches, first_xyz.transpose().A, second_xyz_aligned.transpose().A):
-            if a%20==0: # 5 10 20
-                ax.plot([x1,x2],[z1,z2],'-',color="red",label=label) #y1,y2
-            label = ""
+            pass
+            # if a%20==0: # 5 10 20
+            #     ax.plot([x1,x2],[z1,z2],'-',color="red",label=label) #y1,y2
+            # label = ""
         ax.legend(fontsize=20)# 设置图例字体大小
         ax.set_xlabel('x [m]', fontsize=20)# 设置坐标标签字体大小
         ax.set_ylabel('z [m]', fontsize=20) #

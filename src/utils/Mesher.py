@@ -303,7 +303,7 @@ class Mesher(object):
             pi = pi.unsqueeze(0)
             if self.nice:
                 ret = decoders(pi, c_grid=c, stage=stage)
-            else:
+            else: # 对于imap
                 ret = decoders(pi, c_grid=None)
             ret = ret.squeeze(0)
             if len(ret.shape) == 1 and ret.shape[0] == 4:

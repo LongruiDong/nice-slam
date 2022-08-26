@@ -1,0 +1,47 @@
+dataset: 'tartanair'
+tracking:
+  vis_freq: 50
+  vis_inside_freq: 25
+  ignore_edge_W: 20
+  ignore_edge_H: 20
+  seperate_LR: False
+  const_speed_assumption: True
+  gt_camera: False
+  lr: 0.001
+  pixels: 200
+  iters: 50
+mapping:
+  every_frame: 5
+  vis_freq: 10 # 一般是every_frame的整数倍
+  vis_inside_freq: 30
+  mesh_freq: 50
+  ckpt_freq: 500
+  keyframe_every: 50
+  mapping_window_size: 10
+  pixels: 5000
+  iters_first: 1500
+  iters: 300
+  # bound: [[-5.8,11.3],[-4.0,4.5],[-7.9,4.9]]
+  # marching_cubes_bound: [[-5.8,11.3],[-4.0,4.5],[-7.9,4.9]]
+  # gtw nerf bound [[-1.1442856, 8.019994],[-0.6689984,0.9225319],[-4.626295,0.8937952]]
+cam:  #NOTE: intrinsic is different per scene in TUM e.g: Scene01
+  H: 480 # 480 375
+  W: 640 # 640 1242
+  fx: 320.0
+  fy: 320.0
+  cx: 320.0 #318.6
+  cy: 240.0 #255.3
+  png_depth_scale: 1. #设置 https://github.com/castacks/tartanair_tools/blob/master/data_type.md
+  # crop_edge: 0 #8
+  # crop_size: [384,512]
+  # distortion: [0.2624, -0.9531, -0.0054, 0.0026, 1.1633]
+  depth_trunc: -1 # add for limit bound discard larger depth
+  sky_depth: 10000 #m
+# data:
+#   input_folder: Datasets/Apartment
+#   output: output/Apartment
+meshing:
+  eval_rec: True
+  depth_test: True
+  get_largest_components: True
+  

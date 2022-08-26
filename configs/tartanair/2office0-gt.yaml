@@ -1,5 +1,4 @@
 inherit_from: configs/tartanair/tartanair.yaml
-scale: 0.5 # 深度和pose 平移都x此尺
 grid_len: #对于office0
   coarse: 2 # 2
   middle: 0.32 # 0.32
@@ -21,9 +20,9 @@ meshing: #这些参数要调整
   color_mesh_extraction_method: direct_point_query
   remove_small_geometry_threshold: 0.2 # 0.2 0.4 增大阈值 想清理更多
 mapping: #更改
-  # hos1  raw [[-1.32633,30.4134],[-16.0453,-6.17987],[-18.4163,12.7212]]
-  bound: [[-5.0,36.4],[-18.1,-4.8],[-22.0,17]]
-  marching_cubes_bound: [[-1.4,30.5],[-11.1,-6.1],[-18.5,12.8]] # —16.1 -11 
+  # hos1  raw [[-25.0663,-5.15638],[-2.02155,0.998855],[-16.0791,9.55087]]
+  bound: [[-35.0,-3.],[-2.5,1.5],[-25.0,18.]]
+  marching_cubes_bound: [[-25.1,-5.1],[-1.8,1.],[-16.1,9.6]] # -9.2 想不显示roof -8.6
   every_frame: 5
   vis_freq: 5 # 一般是every_frame的整数倍
   vis_inside_freq: 29 # 30 29
@@ -40,8 +39,8 @@ mapping: #更改
   # no_vis_on_first_frame: False # False True
   # color_refine: False # True False global color 优化的处理 默认开 测试关闭
 data:
-  input_folder: Datasets/TartanAir/hospital/Easy/P001 #Datasets/tcsvt/whole-floor/W2/glass
-  output: output/tartanair/hospital/P001gt-scale0d5 #output/TUM_RGBD/rgbd_dataset_freiburg1_desk
+  input_folder: Datasets/TartanAir/office2/Easy/P000 #Datasets/tcsvt/whole-floor/W2/glass
+  output: output/tartanair/office2/P000gt #output
 cam:  #NOTE: intrinsic is different per scene in TUM e.g: Scene01
   H: 480 # 480 375
   W: 640 # 640 1242

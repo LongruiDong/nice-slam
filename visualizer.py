@@ -124,8 +124,8 @@ if __name__ == '__main__':
         if not args.no_gt_traj:
             frontend.update_pose(1, gt_c2w_list[i], gt=True)
         # the visualizer might get stucked if update every frame
-        # with a long sequence (10000+ frames) 10 2
-        if i % 10 == 0:
+        # with a long sequence (10000+ frames) 10 5 2
+        if i % 5 == 0:
             frontend.update_cam_trajectory(i, gt=False)
             if not args.no_gt_traj:
                 frontend.update_cam_trajectory(i, gt=True)
@@ -133,7 +133,7 @@ if __name__ == '__main__':
     if args.save_rendering:
         time.sleep(1)
         os.system( # 30 10 4
-            f"/usr/bin/ffmpeg -f image2 -r 10 -pattern_type glob -i '{output}/tmp_rendering/*.jpg' -y {output}/vis.mp4")
+            f"/usr/bin/ffmpeg -f image2 -r 30 -pattern_type glob -i '{output}/tmp_rendering/*.jpg' -y {output}/vis.mp4")
     if args.vis_input_frame:
         time.sleep(1)
         # os.system( # 30 10

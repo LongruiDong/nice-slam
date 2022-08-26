@@ -93,7 +93,9 @@ class BaseDataset(Dataset):
             self.input_folder = cfg['data']['input_folder']
         else:
             self.input_folder = args.input_folder
-
+        # 增加噪声接口
+        self.wnoise = cfg['data']['wnoise']
+        self.stdmax = float(cfg['cam']['dstdv_cut_max']) # 用于prune深度的预测的不确定性阈值
         self.crop_edge = cfg['cam']['crop_edge']
         self.depth_trunc = cfg['cam']['depth_trunc'] #深度截断
         self.sky_depth = cfg['cam']['sky_depth'] #clip需要
@@ -127,7 +129,6 @@ class BaseDataset(Dataset):
             K = as_intrinsics_matrix([self.fx, self.fy, self.cx, self.cy])
             # undistortion is only applied on color image, not depth!
             color_data = cv2.undistort(color_data, K, self.distortion)
-
         color_data = cv2.cvtColor(color_data, cv2.COLOR_BGR2RGB)
         color_data = color_data / 255.
         depth_data = depth_data.astype(np.float32) / self.png_depth_scale
@@ -146,6 +147,14 @@ class BaseDataset(Dataset):
             depth_data1 = copy.deepcopy(depth_data)
             depth_data1[depth_data > self.depth_trunc] = 0.0
             depth_data = copy.deepcopy(depth_data1)
+        if False and self.stdmax>0 :  # len(self.stdv_paths) > 0
+            stdv_path = self.stdv_paths[index]
+            # 读入不确定性 npy
+            stdv_data = np.load(stdv_path).astype(np.float32)
+            # 根据不确定性阈值 把std太大的设为0  在nice-slam 0深度意味着不参与
+            depth_data[stdv_data>self.stdmax] = 0.0
+            if index<=1: 
+                print('prune stdv > {:f}'.format(self.stdmax))
         H, W = depth_data.shape
         color_data = cv2.resize(color_data, (W, H))
         color_data = torch.from_numpy(color_data)
@@ -175,8 +184,15 @@ class Replica(BaseDataset):
         super(Replica, self).__init__(cfg, args, scale, device)
         self.color_paths = sorted(
             glob.glob(f'{self.input_folder}/results/frame*.jpg'))
-        self.depth_paths = sorted(
-            glob.glob(f'{self.input_folder}/results/depth*.png'))
+        if self.wnoise:
+            self.depth_paths = sorted(
+                glob.glob(f'{self.input_folder}/mydnoise/depth*.png'))
+        else:
+            self.depth_paths = sorted(
+                glob.glob(f'{self.input_folder}/results/depth*.png')) # results dnetpred 使用估计的深度
+        # dnet预测的不确定性路径
+        self.stdv_paths = sorted(
+                glob.glob(f'{self.input_folder}/dstdpred/dstdv*.npy'))
         self.n_img = len(self.color_paths) # 301 len(self.color_paths) #测试观测不够时 的fusion效果
         print('imagelen: {}'.format(self.n_img))
         self.load_poses(f'{self.input_folder}/traj.txt')
@@ -210,9 +226,9 @@ class Replica(BaseDataset):
                 continue
             self.trajzx.append([c2w[0,3], c2w[1,3], c2w[2,3]]) # (x,y,z)
         traj = np.array(self.trajzx) # n,3
-        # 输出 xyz 的区域
-        print('x y z min:\n', traj.min(axis=0))
-        print('x y z max:\n', traj.max(axis=0))
+        # # 输出 xyz 的区域
+        # print('x y z min:\n', traj.min(axis=0))
+        # print('x y z max:\n', traj.max(axis=0))
         import matplotlib.pyplot as plt
         fig = plt.figure()
         plt.plot(traj[:,0],traj[:,2], linestyle='dashed',c='k') # x,z
@@ -861,8 +877,8 @@ class TartanAir(BaseDataset):
             self.input_folder, 'image_right', '*.png')), key=lambda x: int(os.path.basename(x)[0:6])) #整个timestamp
         # self.colordir = os.path.join(self.input_folder, 'color0') #双目去畸变并rectify后的左目图路径
         # self.colordir1 = os.path.join(self.input_folder, 'color1')
-        self.gtdepth_paths = sorted(glob.glob(os.path.join( # Datasets/TartanAir/office/Easy/P000/ depth_left
-            self.input_folder, 'depth_left', '*.npy')), key=lambda x: int(os.path.basename(x)[0:6]))
+        self.gtdepth_paths = sorted(glob.glob(os.path.join( # Datasets/TartanAir/office/Easy/P000/ depth_left dnetpred
+            self.input_folder, 'dnetpred', '*.npy')), key=lambda x: int(os.path.basename(x)[0:6]))
         # self.depthdir = os.path.join(self.input_folder, 'depth') #通过双目得到的左目深度图路径
         # self.dispdir = os.path.join(self.input_folder, 'disp') #通过双目得到的左目视差图路径
         # self.noisedepthdir = os.path.join(self.input_folder, 'noisedepth') #增加噪声后的深度
@@ -881,8 +897,8 @@ class TartanAir(BaseDataset):
         if add_depthnoise:
             print('use gtdepth add noise!')
             # self.noisedepth() #已经生成过了
-        self.color_paths, self.depth_paths, self.poses = self.loadtcsvt(
-            self.input_folder) # 实际
+        self.color_paths, self.depth_paths, self.poses, self.stdv_paths = self.loadtcsvt(
+            self.input_folder) # 实际  这里增加 不确定性路径的成员变量
         
         self.n_img = len(self.color_paths)
         print('seq lenth: ', self.n_img)
@@ -1019,6 +1035,7 @@ class TartanAir(BaseDataset):
         pose_vecsr = pose_datar[:, [1, 2, 0, 4, 5, 3, 6]].astype(np.float64) # tx ty tz  x y z qw
 
         images, poses, depths, intrinsics = [], [], [], []
+        stdvs = []
         inv_pose = None
         T_rectb = np.array([ [0, 1, 0, 0],
                              [0, 0, 1, 0],
@@ -1030,8 +1047,11 @@ class TartanAir(BaseDataset):
         for i in range(pose_vecs.shape[0]):
             frameid = '%06d' % i
             images += [os.path.join(datapath, 'image_left', frameid+'_left.png')]
+            stdvs += [os.path.join(datapath, 'dstdpred', frameid+'_stdv_depth.npy')] # 预测的不确定性的路径 
             if usegtdepth and not add_depthnoise:
-                depths += [os.path.join(datapath, 'depth_left', frameid+'_left_depth.npy')]
+                depths += [os.path.join(datapath, 'dnetpred', frameid+'_left_depth.npy')] # dnetpred depth_left
+                if i<=1: #确认
+                    print('load depth: {}'.format(depths[-1]))
             elif add_depthnoise: # 增加噪声的实验
                 depths += [os.path.join(self.noisedepthdir, frameid+'_noise_depth.npy')]
             else: #不适用gtdepth 使用opencv的depth 注意是png
@@ -1053,7 +1073,7 @@ class TartanAir(BaseDataset):
             c2w = torch.from_numpy(c2w).float()
             poses += [c2w]
 
-        return images, depths, poses
+        return images, depths, poses, stdvs
 
     def pose_matrix_from_quaternion(self, pvec):
         """ convert 4x4 pose matrix to (t, q) """

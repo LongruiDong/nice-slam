@@ -115,7 +115,7 @@ class Visualizer(object):
                 selecti = selecti.cpu().numpy()
                 selectj = selectj.cpu().numpy()
                 if selecti.shape[0] > 0 : #当有采样点时 在gtcolor画散点
-                    print('sample pixels: \t',selecti.shape[0])
+                    # print('sample pixels: \t',selecti.shape[0])
                     if iter==0: #指在iter0可视化
                         axs[1,0].scatter(selecti, selectj, c='red', s=2)
                 axs[1, 1].imshow(color_np, cmap="plasma")

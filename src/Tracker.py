@@ -121,8 +121,8 @@ class Tracker(object):
             mask = (tmp < 10*tmp.median()) & (batch_gt_depth > 0)
         else: #只考虑mask内的像素参与误差 # 对于outdoor 加上 不属于无穷远 vkitti 655.35
             mask = (batch_gt_depth > 0) # & (batch_gt_depth < 600)
-
-        loss = (torch.abs(batch_gt_depth-depth) /
+        # 这里测试 loss 改为 color only loss
+        loss = ( torch.mean(torch.abs(batch_gt_color - color), dim=1) / # torch.abs(batch_gt_depth-depth) torch.mean(torch.abs(batch_gt_color - color), dim=1)
                 torch.sqrt(uncertainty+1e-10))[mask].sum()
 
         if self.use_color_in_tracking:

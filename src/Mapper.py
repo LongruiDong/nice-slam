@@ -243,7 +243,7 @@ class Mapper(object):
             cur_gt_depth (tensor): gt_depth image of the current camera.
             gt_cur_c2w (tensor): groundtruth camera to world matrix corresponding to current frame.
             keyframe_dict (list): list of keyframes info dictionary.
-            keyframe_list (list): list ofkeyframe index.
+            keyframe_list (list): list of keyframe index.
             cur_c2w (tensor): the estimated camera to world matrix of current frame. 
 
         Returns:
@@ -259,9 +259,9 @@ class Mapper(object):
         if len(keyframe_dict) == 0:
             optimize_frame = []
         else:
-            if self.keyframe_selection_method == 'global':
+            if self.keyframe_selection_method == 'global': # imap 使用5个kf
                 num = self.mapping_window_size-2
-                optimize_frame = random_select(len(self.keyframe_dict)-1, num)
+                optimize_frame = random_select(len(self.keyframe_dict)-1, num) # 按照它论文 这里不应该采用一定的选择策略？
             elif self.keyframe_selection_method == 'overlap': #按共视区域
                 num = self.mapping_window_size-2 # K-2
                 optimize_frame = self.keyframe_selection_overlap(
@@ -290,7 +290,7 @@ class Mapper(object):
             self.selected_keyframes[idx] = keyframes_info
 
         pixs_per_image = self.mapping_pixels//len(optimize_frame) # 每个kf的像素数
-
+        print(f'Fid {idx:d} , pixs_per_image: {pixs_per_image:d}')
         decoders_para_list = []
         coarse_grid_para = []
         middle_grid_para = []
@@ -485,7 +485,7 @@ class Mapper(object):
 
             batch_rays_d = torch.cat(batch_rays_d_list)
             batch_rays_o = torch.cat(batch_rays_o_list)
-            batch_gt_depth = torch.cat(batch_gt_depth_list) # 6000
+            batch_gt_depth = torch.cat(batch_gt_depth_list) # 6000 类似于batchsize
             batch_gt_color = torch.cat(batch_gt_color_list) # 6000,3
 
             if self.nice:
@@ -511,8 +511,9 @@ class Mapper(object):
             depth, uncertainty, color = ret
             # 和 tracker中的改动一致
             depth_mask = (batch_gt_depth > 0)# & (batch_gt_depth < 600) #只考虑mask内的像素参与误差 # 对于outdoor 加上 不属于无穷远 vkitti 655.35
+            # 这里测试 loss 改为 color only loss
             loss = torch.abs(
-                batch_gt_depth[depth_mask]-depth[depth_mask]).sum()
+                batch_gt_color[depth_mask]-color[depth_mask]).sum() # batch_gt_depth[depth_mask]-depth[depth_mask] batch_gt_color[depth_mask]-color[depth_mask]
             if ((not self.nice) or (self.stage == 'color')):
                 color_loss = torch.abs(batch_gt_color - color).sum()
                 weighted_color_loss = self.w_color_loss*color_loss
@@ -621,7 +622,7 @@ class Mapper(object):
                     if self.nice:
                         outer_joint_iters = 1
                     else:
-                        outer_joint_iters = 3
+                        outer_joint_iters = 3 # 对于imap* 外层循环3次 为何 难道是想和nice-slam 有3个优化阶段对等？
 
             else: # 初始化
                 outer_joint_iters = 1
@@ -629,7 +630,7 @@ class Mapper(object):
                 num_joint_iters = cfg['mapping']['iters_first'] #初始的总迭代次数很大
 
             cur_c2w = self.estimate_c2w_list[idx].to(self.device)
-            num_joint_iters = num_joint_iters//outer_joint_iters
+            num_joint_iters = num_joint_iters//outer_joint_iters # 注意这里除法 300/3=100 imap* 这个策略很莫名其妙。。
             for outer_joint_iter in range(outer_joint_iters):
 
                 self.BA = (len(self.keyframe_list) > 4) and cfg['mapping']['BA'] and (
