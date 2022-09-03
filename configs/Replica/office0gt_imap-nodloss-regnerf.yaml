@@ -1,0 +1,20 @@
+inherit_from: configs/Replica/replica_imap.yaml
+# coarse: False #是否优化coarse level geometry 地图 True  debug 时就先关掉该线程 False
+tracking:
+  gt_camera: True #? True False
+mapping:
+  bound: [[-5.5,5.9],[-6.7,5.4],[-4.7,5.3]]
+  marching_cubes_bound: [[-5.5,5.9],[-6.7,5.4],[-4.7,5.3]]
+  BA: False # True #mapping是否一同优化位姿 False
+  no_vis_on_first_frame: False # True
+  mapping_window_size: 5
+  pixels: 5000 # 窗口内若干关键帧使用的总像素(ray)数 实际中每个kf中ray数目更少 5000/5=1000|  2048*5=10240 4096*5=20480 
+  iters_first: 1500 # | 
+  vis_freq: 50 # 每# 帧 打印并可视化 mapping的中间结果
+  iters: 300 # 实际上要除以3 外层3次 内层100  300|  816*3=2448*(*p all ray)
+  vis_inside_freq: 30 # 在上面条件下 迭代每30次 保存可视化结果 30| 
+data:
+  input_folder: Datasets/Replica/office0
+  output: output_imap-reg/Replica/office0gt-nodloss # 增大迭代次数
+cam:
+  dstdv_cut_max: -1  # 对于office 实际最大值在0.35左右 0.25 0.2 0.15

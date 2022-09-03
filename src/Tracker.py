@@ -61,8 +61,9 @@ class Tracker(object):
         self.no_vis_on_first_frame = cfg['mapping']['no_vis_on_first_frame']
 
         self.prev_mapping_idx = -1
-        self.frame_reader = get_dataset(
-            cfg, args, self.scale, device=self.device)
+        # self.frame_reader = get_dataset(
+        #     cfg, args, self.scale, device=self.device)
+        self.frame_reader = slam.frame_reader
         self.n_img = len(self.frame_reader)
         self.frame_loader = DataLoader(
             self.frame_reader, batch_size=1, shuffle=False, num_workers=1)
@@ -113,7 +114,7 @@ class Tracker(object):
 
         ret = self.renderer.render_batch_ray(
             self.c, self.decoders, batch_rays_d, batch_rays_o,  self.device, stage='color',  gt_depth=batch_gt_depth)
-        depth, uncertainty, color = ret
+        depth, uncertainty, color, _ = ret
 
         uncertainty = uncertainty.detach()
         if self.handle_dynamic: # 处理运动物体
@@ -157,7 +158,7 @@ class Tracker(object):
         else:
             pbar = tqdm(self.frame_loader)
 
-        for idx, gt_color, gt_depth, gt_c2w in pbar:
+        for idx, gt_color, gt_depth, gt_c2w, _, _ in pbar: # 多了输出 regnerf 但这里暂时不使用
             if not self.verbose:
                 pbar.set_description(f"Tracking Frame {idx[0]}")
 

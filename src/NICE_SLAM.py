@@ -142,7 +142,7 @@ class NICE_SLAM():
         Args:
             cfg (dict): parsed config dict.
         """
-        print('raw config bound: \n',np.array(cfg['mapping']['bound']))
+        # print('raw config bound: \n',np.array(cfg['mapping']['bound']))
         # scale the bound if there is a global scaling factor
         self.bound = torch.from_numpy(
             np.array(cfg['mapping']['bound'])*self.scale) #bound也会根据scle设置调整
@@ -230,7 +230,7 @@ class NICE_SLAM():
         val_shape = [1, c_dim, *middle_val_shape] #[1,32,40,26,53]
         middle_val = torch.zeros(val_shape).normal_(mean=0, std=0.01)
         c[middle_key] = middle_val
-        print('grid_middle: \n', val_shape)
+        # print('grid_middle: \n', val_shape)
 
         fine_key = 'grid_fine'
         fine_val_shape = list(map(int, (xyz_len/fine_grid_len).tolist()))
@@ -248,7 +248,7 @@ class NICE_SLAM():
         val_shape = [1, c_dim, *color_val_shape]
         color_val = torch.zeros(val_shape).normal_(mean=0, std=0.01)
         c[color_key] = color_val
-        print('grid_color: \n', val_shape)
+        # print('grid_color: \n', val_shape)
 
         self.shared_c = c
 

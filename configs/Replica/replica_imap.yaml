@@ -22,6 +22,28 @@ mapping:
   pixels: 5000
   iters_first: 1500
   iters: 300
+  # regnerf copy from internal/configs.py, configs/llff3.gin
+  n_random_poses: 100 # (How many random poses to use) sparse view之外 随机生成的view的数量
+  patch_size: 16 # Patch size for random pose losses 默认8*8的块
+  batch_size_random: 4096 # The number of rays/pixels in each batch. 4096|  对于生成的视角 单独控制bs
+  batching_random: 'all_images' # Batch composiiton for random views.
+  load_random_rays: True # Whether to load random rays. 这些视角开作为正则约束
+  anneal_nearfar: False # Whether to anneal near/far planes. 暂时不开
+  anneal_nearfar_steps: 512 # Steps for near/far annealing.
+  anneal_nearfar_perc: 0.0001 # Percentage for near/far annealing.
+  anneal_mid_perc: 1.0 # Perc for near/far mid point.
+
+  depth_tvnorm_loss_mult: 25000. # Loss weight of depth tv norm.
+  depth_tvnorm_selector: 'distance_mean_save' # Selector for tv depth.
+  depth_tvnorm_type: 'l2'  # Type of depth tv norm loss.
+  depth_tvnorm_mask_weight: 1.0 # Weight for tvnorm mask (0.0 = disabled)
+  coarse_loss_mult: 2500.  # How much to downweight the coarse loss(es). 是否能直接对应于 nice-slaM coarse 阶段 try 0.1
+  random_scales: 1 # Scales for random patch sampling (default is 1). _generate_random_rays()
+  random_scales_init: 0  # Init scale for random patch sampling.
+  depth_tvnorm_decay: True # Whether to decay tvnorm.
+  depth_tvnorm_maxstep: 25440 # Max step for depth tv norm decay. regnerf 里step是总迭代次数 我这里decay策略 得改大一些 512 | 2048   25440=399*60+1500
+  depth_tvnorm_loss_mult_start: 1e7 # Start loss weight for tv depth. 400
+  depth_tvnorm_loss_mult_end: 25000 # Start loss weight for tv depth. 0.1 
 cam:
   H: 680
   W: 1200

@@ -68,10 +68,101 @@ def readEXR_onlydepth(filename):
 
     return Y
 
+def normalize(x):
+  """Normalization helper function."""
+  return x / np.linalg.norm(x)
+
+def poses_avg(poses):
+  """New pose using average position, z-axis, and up vector of input poses."""
+  position = poses[:, :3, 3].mean(0) # (2000,3)->(3,) 平均平移向量
+  z_axis = poses[:, :3, 2].mean(0)
+  up = poses[:, :3, 1].mean(0) # 得到了平均的  z 和 up 
+  cam2world = viewmatrix(z_axis, up, position)
+  return cam2world
+
+def pad_poses(p):
+  """Pad [..., 3, 4] pose matrices with a homogeneous bottom row [0,0,0,1]."""
+  bottom = np.broadcast_to([0, 0, 0, 1.], p[Ellipsis, :1, :4].shape)
+  return np.concatenate([p[Ellipsis, :3, :4], bottom], axis=-2)
+
+
+def unpad_poses(p):
+  """Remove the homogeneous bottom row from [..., 4, 4] pose matrices."""
+  return p[Ellipsis, :3, :4]
+
+def recenter_poses(poses): # (41,3,4)
+  """Recenter poses around the origin.""" # 新的世界系就是 avg p
+  cam2world = poses_avg(poses)
+  poses = np.linalg.inv(pad_poses(cam2world)) @ pad_poses(poses) # Twc^(-1) Twc-Tcenter_c
+  return unpad_poses(poses) # 就是改变了世界系
+
+def viewmatrix(lookdir, up, position, subtract_position=False):
+  """Construct lookat view matrix."""
+  vec2 = normalize((lookdir - position) if subtract_position else lookdir)
+  vec0 = normalize(np.cross(up, vec2)) # 得到正交的方向
+  vec1 = normalize(np.cross(vec2, vec0))
+  m = np.stack([vec0, vec1, vec2, position], axis=1)
+  return m
+
 
 def get_dataset(cfg, args, scale, device='cuda:0'):
     return dataset_dict[cfg['dataset']](cfg, args, scale, device=device)
 
+# regnerf/internal/utils.py Rays类
+class Rays:
+    def __init__(self, origins, directions, viewdirs, radii, lossmult, near, far):
+        self.origins = origins
+        self.directions = directions
+        self.viewdirs = viewdirs
+        self.radii = radii  # 这是为了mip cone 的采样所用
+        self.lossmult = lossmult
+        self.near = near
+        self.far = far
+
+def dataclass_map(fn, x):
+  """Behaves like jax.tree_map but doesn't recurse on fields of a dataclass."""
+  return x.__class__(**{k: fn(v) for k, v in vars(x).items()})
+
+def subsample_patches(images, patch_size, batch_size, batching='all_images'): # 需要移植吧
+    """Subsamples patches.
+        images 这里可能是 rays()
+    """
+    n_patches = batch_size // (patch_size ** 2)
+
+    scale = np.random.randint(0, len(images)) # 就1个 0
+    images = images[scale]
+
+    if isinstance(images, np.ndarray):
+        shape = images.shape
+    else: # 是ray 类
+        shape = images.origins.shape #(100,378,504,3)
+
+    # Sample images
+    if batching == 'all_images': # 对于ray train 是这里
+        idx_img = np.random.randint(0, shape[0], size=(n_patches, 1)) # 每个patch选择的 view(pose) 每个patch属于不同虚拟image
+    elif batching == 'single_image':
+        idx_img = np.random.randint(0, shape[0])
+        idx_img = np.full((n_patches, 1), idx_img, dtype=np.int)
+    else:
+        raise ValueError('Not supported batching type!')
+
+    # Sample start locations 每个patch在各自图片的左上位置
+    x0 = np.random.randint(0, shape[2] - patch_size + 1, size=(n_patches, 1, 1))
+    y0 = np.random.randint(0, shape[1] - patch_size + 1, size=(n_patches, 1, 1))
+    xy0 = np.concatenate([x0, y0], axis=-1) # (n_patches, 1, 2)
+    patch_idx = xy0 + np.stack(
+        np.meshgrid(np.arange(patch_size), np.arange(patch_size), indexing='xy'),
+        axis=-1).reshape(1, -1, 2) # 位置 (n_p, 64,2)
+
+    # Subsample images
+    if isinstance(images, np.ndarray):
+        out = images[idx_img, patch_idx[Ellipsis, 1], patch_idx[Ellipsis, 0]].reshape(-1, 3)
+    else:
+        out = dataclass_map(
+            lambda x: x[idx_img, patch_idx[Ellipsis, 1], patch_idx[Ellipsis, 0]].reshape(  # pylint: disable=g-long-lambda
+                -1, x.shape[-1]), images) # (128=n_p*p_s,3) rays() 选出的patch的ray
+        # 改为直接得到 最后显式的数据  
+    return out, np.ones((n_patches, 1), dtype=np.float32) * scale # 若只有原scle 这里就是 0向量
 
 class BaseDataset(Dataset):
     def __init__(self, cfg, args, scale, device='cuda:0'
@@ -99,6 +190,92 @@ class BaseDataset(Dataset):
         self.crop_edge = cfg['cam']['crop_edge']
         self.depth_trunc = cfg['cam']['depth_trunc'] #深度截断
         self.sky_depth = cfg['cam']['sky_depth'] #clip需要
+        
+        # 在初始化数据时 就生成随机的rays, adapt from regnerf/internal/datasets.py def _train_init()
+        self.load_random_rays = cfg['mapping']['load_random_rays']
+        self.patch_size = cfg['mapping']['patch_size']
+        self.batch_size_random = cfg['mapping']['batch_size_random']
+        self.batching_random = cfg['mapping']['batching_random']
+        
+        
+    def _generate_random_poses(self, config):
+        """Generates random poses."""
+        n_poses = config['mapping']['n_random_poses']
+        poses = self.camtoworlds_all # (41,3,4) # 是已经转化后的坐标系
+        bounds = self.bounds # (41,2) 
+        # Find a reasonable 'focus depth' for this dataset as a weighted average
+        # of near and far bounds in disparity space. 是比bound更大范围
+        # 这里reolica bounds.near 是0 导致 focal 是0 改为取出 除0外的深度最小值 bounds.min()
+        close_depth, inf_depth = np.unique(np.sort(bounds[:,0]))[1] * .9, bounds.max() * 5. # 0.62 21.74
+        dt = .75
+        focal = 1 / (((1 - dt) / close_depth + dt / inf_depth)) # 4.5(对于 llff) 2.29(office0)
+
+        # Get radii for spiral path using 90th percentile of camera positions. 所有数据平移的最大值
+        positions = poses[:, :3, 3] # (41,3)
+        radii = np.percentile(np.abs(positions), 100, 0) # (3,) 但这里就是100 不是上面的90 ？ bug 各平移分量abs max
+        radii = np.concatenate([radii, [1.]]) # (4,)
+
+        # Generate random poses.
+        random_poses = []
+        cam2world = poses_avg(poses) # (3,4) 他在下面的作用 
+        up = poses[:, :3, 1].mean(0) # y 上的平均 (3,) 这个先确定了
+        for _ in range(n_poses):
+            t = radii * np.concatenate([2 * np.random.rand(3) - 1., [1,]]) # 随机得到 4维向量 [-1,1) * 原本平移边界
+            position = cam2world @ t # 这是不是认为t是在 avg pose下的 随机向量 然后转到世界系
+            lookat = cam2world @ [0, 0, -focal, 1.] # @ (-z)  (3,) 平均深度 从avg 转到世界系 视为一个点
+            z_axis = position - lookat # 被看到的点 和 当前光心连线 才是 新的coord 的z轴
+            random_poses.append(viewmatrix(z_axis, up, position)) # https://github.com/google-research/google-research/issues/1176
+        self.random_poses = np.stack(random_poses, axis=0)
+
+       
+    def _generate_random_rays(self, config):
+        """Generates random rays.""" # 和新loss有关 
+        self._generate_random_poses(config) # (10000,3,4) -> (100,3,4)
+        camtoworlds = self.random_poses
+        
+        random_rays = []
+        for sfactor in [2**i for i in range(config['mapping']['random_scales_init'], # i智能0 还是原分辨率拿出rays
+                                            config['mapping']['random_scales'])]:
+            w = self.W // sfactor
+            h = self.H // sfactor
+            f = self.fx / (sfactor * 1.0)
+
+            x, y = np.meshgrid(  # pylint: disable=unbalanced-tuple-unpacking
+                np.arange(w, dtype=np.float32),  # X-Axis (columns)
+                np.arange(h, dtype=np.float32),  # Y-Axis (rows)
+                indexing='xy')
+            camera_dirs = np.stack(
+                [(x - w * 0.5 + 0.5) / f,
+                -(y - h * 0.5 + 0.5) / f, -np.ones_like(x)],
+                axis=-1)
+            directions = ((camera_dirs[None, Ellipsis, None, :] * # 似乎是卡在这里 因为 pose数太多了。。 暂时降低到100 还ok
+                            camtoworlds[:, None, None, :3, :3]).sum(axis=-1)) # 此过程和前面生成ray的区别就在于 位姿是采样的
+            origins = np.broadcast_to(camtoworlds[:, None, None, :3, -1],
+                                        directions.shape) # (100,680,1200,3) 这里确实不是归一化的 方向！
+            viewdirs = directions / np.linalg.norm(directions, axis=-1, keepdims=True)
+
+            # if self.use_ndc_space: # 这里是否需要 先关掉
+            #     origins, directions = convert_to_ndc(origins, directions, f, w, h)
+            mat = origins
+            # Distance from each unit-norm direction vector to its x-axis neighbor. 但这里咋都是全0 因为没开ndc
+            dx = np.linalg.norm(mat[:, :-1, :, :] - mat[:, 1:, :, :], axis=-1)
+            dx = np.concatenate([dx, dx[:, -2:-1, :]], axis=1)
+            dy = np.linalg.norm(mat[:, :, :-1, :] - mat[:, :, 1:, :], axis=-1)
+            dy = np.concatenate([dy, dy[:, :, -2:-1]], axis=2) # (100,h,w)
+            # Cut the distance in half, multiply it to match the variance of a uniform
+            # distribution the size of a pixel (1/12, see paper).
+            radii = (0.5 * (dx + dy))[Ellipsis, None] * 2 / np.sqrt(12) # (100,h,w,1)
+            ones = np.ones_like(origins[Ellipsis, :1]) # (100,378,504,1)
+            random_rays.append(Rays(
+                origins=np.float32(origins),
+                directions=np.float32(directions),
+                viewdirs=np.float32(viewdirs),
+                radii=np.float32(radii), # 具体是什么作用
+                lossmult=np.float32(ones),
+                near=np.float32(ones * 0),
+                far=np.float32(ones * 1)))
+        self.random_rays = random_rays
+        return    
 
     def __len__(self):
         return self.n_img
@@ -175,7 +352,60 @@ class BaseDataset(Dataset):
             depth_data = depth_data[edge:-edge, edge:-edge]
         pose = self.poses[index]
         pose[:3, 3] *= self.scale #和深度x同一尺度因子
-        return index, color_data.to(self.device), depth_data.to(self.device), pose.to(self.device)
+        
+        # 每次载入数据进行优化时 也去采样 前面离线生成的patch 来构建正则化约束 copy from regnerf/internal/datasets.py _next_train_()
+        return_dict = {}
+        if self.load_random_rays:
+            # return_dict['rays_random'], _ = ( #前者 (p_s*n_p,3) rays() 后者 0向量(当只有原尺度)
+            #     subsample_patches(self.random_rays, self.patch_size,
+            #                         self.batch_size_random,
+            #                         batching=self.batching_random))
+            # return_dict['rays_random2'], return_dict['rays_random2_scale'] = (  # 再次随机生成一次 原repo实际没用到 先略
+            #     subsample_patches(
+            #         self.random_rays, self.patch_size, self.batch_size_random,
+            #         batching=self.batching_random))
+            # rays_random_d = torch.from_numpy(return_dict['rays_random'].directions)
+            # rays_random_o = torch.from_numpy(return_dict['rays_random'].origins)
+            # return index, color_data.to(self.device), depth_data.to(self.device), pose.to(self.device), rays_random_d.to(self.device), rays_random_o.to(self.device) # , return_dict # 增加输出 注意这里还是np 内部拿到后还要转tensor
+            return index, color_data.to(self.device), depth_data.to(self.device), pose.to(self.device), torch.ones_like(pose).to(self.device), torch.ones_like(pose).to(self.device)
+        else:
+            return index, color_data.to(self.device), depth_data.to(self.device), pose.to(self.device), torch.ones_like(pose).to(self.device), torch.ones_like(pose).to(self.device)
+                    
+
+    
+    def createpcd(self, w2c_mats, skip = 30):
+        import open3d as o3d
+        # 从depth png 得到世界系下 稀疏化后 的点云
+        inter = o3d.camera.PinholeCameraIntrinsic()
+        inter.set_intrinsics(1200, 680, 600.0, 600.0, 599.5, 339.5)
+        pcd_combined = o3d.geometry.PointCloud() # 用于储存多帧合并后的点云 世界系
+        bounds = []
+        for v in range(self.n_img):
+            
+            depthfile = self.depth_paths[v]
+            depth_raw = o3d.io.read_image(depthfile) # np.asarray(depth_raw) uint16 680*1200=816000
+            deptharr = cv2.imread(depthfile, cv2.IMREAD_UNCHANGED)
+            depth_data = deptharr.astype(np.float32) / self.png_depth_scale
+            near_i = np.percentile(depth_data, 0.1)
+            far_i = np.percentile(depth_data, 99.9)
+            bounds.append(np.array([near_i, far_i]))
+            if v%skip != 0 :
+                continue
+            pcd_idx = o3d.geometry.PointCloud.create_from_depth_image(
+                            depth_raw, inter,
+                            extrinsic=w2c_mats[v], #测试这里就用外参 哦好像是得用 w2c!!
+                            depth_scale=self.png_depth_scale,
+                            stride=50) # 5-(2185582, 3) 10-(546381,3) 20-(136598,3) 50-(22494,3) 100
+            # http://www.open3d.org/docs/release/python_api/open3d.geometry.PointCloud.html#open3d.geometry.PointCloud.create_from_depth_image
+            pcd_combined += pcd_idx
+        
+        abox = pcd_combined.get_axis_aligned_bounding_box() # 这个就是原坐标系下bound 和我之前nice-slam同样方法office0.yaml注释一样！
+        # print('axis_aligned_bounding_box: \n', abox) # AxisAlignedBoundingBox: min: (-2.00841, -3.15475, -1.15338), max: (2.39718, 1.81201, 1.78262)
+        pcdarray = np.asarray(pcd_combined.points) # 转为数组
+        print('pcd shape: \n', pcdarray.shape) #(n,3) (54639637, 3) colmap: ~20787
+        
+        bounds = np.stack(bounds, 0) # N,2
+        return pcdarray, bounds # M,3
 
 
 class Replica(BaseDataset):
@@ -193,13 +423,52 @@ class Replica(BaseDataset):
         # dnet预测的不确定性路径
         self.stdv_paths = sorted(
                 glob.glob(f'{self.input_folder}/dstdpred/dstdv*.npy'))
-        self.n_img = len(self.color_paths) # 301 len(self.color_paths) #测试观测不够时 的fusion效果
+        self.n_img = len(self.color_paths) # 301 len(self.color_paths) #测试观测不够时 的fusion效果 1000
         print('imagelen: {}'.format(self.n_img))
         self.load_poses(f'{self.input_folder}/traj.txt')
-        self.plot_traj()
+        # self.plot_traj()
+        
+        # 还需要得到现有pose下对应的bound数组 后面生成随机view时需要 这里用的是变换前的pose！ # 但其实也可以直接用depth拿最大最小值 免得后面再次反投影 再投回来
+        self.xyz_world, bounds1 = self.createpcd(self.w2c_mats, skip=30)
+        # # 投影得到bound copy from nerfw_pl
+        # xyz_world_h = np.concatenate([self.xyz_world, np.ones((len(self.xyz_world), 1))], -1) # (M,4) 齐次表示
+        # # Compute near and far bounds for each image individually
+        # bounds = []
+        # for i in range(self.n_img): #3d点数量相比sparse colmap 太多(~1000x) 导致下面bound计算太慢 
+        #     xyz_cam_i = (xyz_world_h @ self.w2c_mats[i].T)[:, :3] # xyz in the ith cam coordinate 批量转换 (M,4)
+        #     xyz_cam_i = xyz_cam_i[xyz_cam_i[:, 2]>0] # filter out points that lie behind the cam ,this id 留下的点不一定都能成像吧 更准确的是按照2d-3d对应关系得到此相机的点
+        #     near_i = np.percentile(xyz_cam_i[:, 2], 0.1) # 深度的范围
+        #     far_i = np.percentile(xyz_cam_i[:, 2], 99.9)
+        #     bounds.append(np.array([near_i, far_i]))
+        # self.bounds = np.stack(bounds, 0) # N,2
+        
+        self.bounds = copy.deepcopy(bounds1)
+        self.near = self.bounds[:, 0]
+        self.far = self.bounds[:, 1]
+        
+        max_far = self.bounds[:,1].max() # 所有深度图的最大值
+        
+        # self.camtoworlds_all = self.poses[:, :3, :] # N,3,4
+        tmp = []
+        for i in range(self.n_img):
+            c2w = self.poses[i].numpy() # tensor 转 np
+            tmp += [c2w] 
+        # poses = np.stack(tmp, 0)[:, :3, :]
+        # poses_re = recenter_poses(poses)
+        self.camtoworlds_all = np.stack(tmp, 0)[:, :3, :] # N,3,4 注意这个pose是转换后的坐标系 poses_re # 
+        # # 在更新下 self pose
+        # for i in range(self.n_img):
+        #     c2w_raw = self.camtoworlds_all[i] # [3,4]
+        #     c2w4 = np.concatenate(c2w_raw, [[0, 0, 0, 1.]])
+        #     self.poses[i] = torch.from_numpy(c2w4).float() 
+        
+        if self.load_random_rays:
+            print('[debug] load_random_rays....')
+            self._generate_random_rays(cfg)
 
     def load_poses(self, path):
         self.poses = []
+        w2c_mats = []
         with open(path, "r") as f:
             lines = f.readlines()
         inv_pose = None
@@ -212,10 +481,14 @@ class Replica(BaseDataset):
             #     c2w = np.eye(4)
             # else:
             #     c2w = inv_pose@c2w # T0w Twi = T0i
+            w2c = np.linalg.inv(c2w)
+            w2c_mats += [w2c]
             c2w[:3, 1] *= -1
             c2w[:3, 2] *= -1
             c2w = torch.from_numpy(c2w).float()
             self.poses.append(c2w)
+        
+        self.w2c_mats = np.stack(w2c_mats, 0) # (N_images, 4, 4) 注意他还是原始位姿
     
     # 也画出轨迹 想看看bound to do
     def plot_traj(self):

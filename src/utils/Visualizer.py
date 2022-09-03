@@ -131,6 +131,6 @@ class Visualizer(object):
                     f'{self.vis_dir}/{idx:05d}_{iter:04d}.jpg', bbox_inches='tight', pad_inches=0.2)
                 plt.clf()
 
-                if self.verbose:
-                    print(
-                        f'Saved rendering visualization of color/depth image at {self.vis_dir}/{idx:05d}_{iter:04d}.jpg')
+                # if self.verbose:
+                #     print(
+                #         f'Saved rendering visualization of color/depth image at {self.vis_dir}/{idx:05d}_{iter:04d}.jpg')
