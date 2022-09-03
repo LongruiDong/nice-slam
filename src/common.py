@@ -92,45 +92,45 @@ def get_rays_from_uv(i, j, c2w, H, W, fx, fy, cx, cy, device):
 
 def select_uv(i, j, n, depth, color, device='cuda:0'):
     """
-    Select n uv from dense uv. 他这里没按I-map那样采样啊。。
+    Select n uv from dense uv. 他这里没按I-map那样采样啊。。 均匀分布来采样
     # i和j其实就是 图像裁剪后区域每像素的 下标 (u,v)
     """
-    # i = i.reshape(-1)
-    # j = j.reshape(-1)
-    # indices = torch.randint(i.shape[0], (n,), device=device)
-    # indices = indices.clamp(0, i.shape[0])
-    # i = i[indices]  # (n)
-    # j = j[indices]  # (n)
-    # depth = depth.reshape(-1)
-    # color = color.reshape(-1, 3)
-    # depth = depth[indices]  # (n)
-    # color = color[indices]  # (n,3)
-    # return i, j, depth, color
-    depth = depth.reshape(-1)
-    color = color.reshape(-1, 3) # sky==0
-    finind = (depth>0).nonzero().reshape(-1) # 有限深度的总索引depth<600 (n) 655.35
-    indices0 = torch.randint(finind.shape[0], (n,), device=device)
-    indices0 = indices0.clamp(0, finind.shape[0])
-    indices1 = finind[indices0] # 对应的原始index
-    indices = indices1
-    i = i.reshape(-1) # 335*1202
+    i = i.reshape(-1)
     j = j.reshape(-1)
-    # indices = torch.randint(i.shape[0], (n,), device=device) # 值域[0，总像素数) 的size为(n)的向量
-    # indices = indices.clamp(0, i.shape[0]) #确保值域范围 （多此一举？ 上句已经保证了）
+    indices = torch.randint(i.shape[0], (n,), device=device) # 值域[0，总像素数) 的size为(n)的向量
+    indices = indices.clamp(0, i.shape[0]) # 确保值域范围 （多此一举？ 上句已经保证了）
     i = i[indices]  # (n) 按随机的索引的索引 拿出 选择的像素的下标
     j = j[indices]  # (n)
-    
+    depth = depth.reshape(-1)
+    color = color.reshape(-1, 3)
     depth = depth[indices]  # (n)
     color = color[indices]  # (n,3) 选中的像素上的深度 和 颜色
-    dnn = depth.cpu().numpy().shape[0]
-    cnn = color.cpu().numpy().shape
-    # print('[select_uv] color size: \t', cnn)
-    # try:
-    #     # print('[select_uv] 2/depth.shape[0]: \t', 2/dnn)
-    #     x = 2/dnn
-    # except Exception as e:
-    #     traceback.print_exc()
+    
     return i, j, depth, color
+    
+    # depth = depth.reshape(-1)
+    # color = color.reshape(-1, 3) # sky==0 为了限制深度有效区域拿出来 for outdoor
+    # finind = (depth>0).nonzero().reshape(-1) # 有限深度的总索引depth<600 (n) 655.35
+    # indices0 = torch.randint(finind.shape[0], (n,), device=device)
+    # indices0 = indices0.clamp(0, finind.shape[0])
+    # indices1 = finind[indices0] # 对应的原始index
+    # indices = indices1
+    # i = i.reshape(-1) # 335*1202
+    # j = j.reshape(-1)
+    # i = i[indices]  # (n) 按随机的索引的索引 拿出 选择的像素的下标
+    # j = j[indices]  # (n)
+    
+    # depth = depth[indices]  # (n)
+    # color = color[indices]  # (n,3) 选中的像素上的深度 和 颜色
+    # # dnn = depth.cpu().numpy().shape[0]
+    # # cnn = color.cpu().numpy().shape
+    # # print('[select_uv] color size: \t', cnn)
+    # # try:
+    # #     # print('[select_uv] 2/depth.shape[0]: \t', 2/dnn)
+    # #     x = 2/dnn
+    # # except Exception as e:
+    # #     traceback.print_exc()
+    # return i, j, depth, color
 
 
 def get_sample_uv(H0, H1, W0, W1, n, depth, color, device='cuda:0'):
@@ -269,20 +269,95 @@ def raw2outputs_nerf_color(raw, z_vals, rays_d, occupancy=False, device='cuda:0'
     # different ray angle corresponds to different unit length
     dists = dists * torch.norm(rays_d[..., None, :], dim=-1)
     rgb = raw[..., :-1] #注意颜色是其中的一部分
-    if occupancy:
+    if occupancy: # 这个alpha 都是占据概率
         raw[..., 3] = torch.sigmoid(10*raw[..., -1])
         alpha = raw[..., -1]
     else:
         # original nerf, volume density
         alpha = raw2alpha(raw[..., -1], dists)  # (N_rays, N_samples)
-
+    # ray termination probability = alpha(occupancy) * accumulated transmittance
     weights = alpha.float() * torch.cumprod(torch.cat([torch.ones((alpha.shape[0], 1)).to(
-        device).float(), (1.-alpha + 1e-10).float()], -1).float(), -1)[:, :-1]
+        device).float(), (1.-alpha + 1e-10).float()], -1).float(), -1)[:, :-1] # # (N_rays, N_samples)
     rgb_map = torch.sum(weights[..., None] * rgb, -2)  # (N_rays, 3)
     depth_map = torch.sum(weights * z_vals, -1)  # (N_rays)
     tmp = (z_vals-depth_map.unsqueeze(-1))  # (N_rays, N_samples)
     depth_var = torch.sum(weights*tmp*tmp, dim=1)  # (N_rays)
     return depth_map, depth_var, rgb_map, weights
+
+
+def dataclass_map(fn, x):
+  """Behaves like jax.tree_map but doesn't recurse on fields of a dataclass."""
+  return x.__class__(**{k: fn(v) for k, v in vars(x).items()})
+
+def subsample_patches(images, patch_size, batch_size, batching='all_images'): # 需要移植吧
+    """Subsamples patches.
+        images 这里可能是 rays()
+    """
+    n_patches = batch_size // (patch_size ** 2)
+
+    scale = np.random.randint(0, len(images)) # 就1个 0
+    images = images[scale]
+
+    if isinstance(images, np.ndarray):
+        shape = images.shape
+    else: # 是ray 类
+        shape = images.origins.shape #(100,378,504,3)
+
+    # Sample images
+    if batching == 'all_images': # 对于ray train 是这里
+        idx_img = np.random.randint(0, shape[0], size=(n_patches, 1)) # 每个patch选择的 view(pose) 每个patch属于不同虚拟image
+    elif batching == 'single_image':
+        idx_img = np.random.randint(0, shape[0])
+        idx_img = np.full((n_patches, 1), idx_img, dtype=np.int)
+    else:
+        raise ValueError('Not supported batching type!')
+
+    # Sample start locations 每个patch在各自图片的左上位置
+    x0 = np.random.randint(0, shape[2] - patch_size + 1, size=(n_patches, 1, 1))
+    y0 = np.random.randint(0, shape[1] - patch_size + 1, size=(n_patches, 1, 1))
+    xy0 = np.concatenate([x0, y0], axis=-1) # (n_patches, 1, 2)
+    patch_idx = xy0 + np.stack(
+        np.meshgrid(np.arange(patch_size), np.arange(patch_size), indexing='xy'),
+        axis=-1).reshape(1, -1, 2) # 位置 (n_p, 64,2)
+
+    # Subsample images
+    if isinstance(images, np.ndarray):
+        out = images[idx_img, patch_idx[Ellipsis, 1], patch_idx[Ellipsis, 0]].reshape(-1, 3)
+    else:
+        out = dataclass_map(
+            lambda x: x[idx_img, patch_idx[Ellipsis, 1], patch_idx[Ellipsis, 0]].reshape(  # pylint: disable=g-long-lambda
+                -1, x.shape[-1]), images) # (128=n_p*p_s,3) rays() 选出的patch的ray
+        # 改为直接得到 最后显式的数据  
+    return out, np.ones((n_patches, 1), dtype=np.float32) * scale # 若只有原scle 这里就是 0向量
+
+def compute_tv_norm(values, losstype='l2', weighting=None):  # pylint: disable=g-doc-args
+    """Returns TV norm for input values. geometry reg 的 loss 需要移植！ 直接copy注释
+    values n_p, ps, ps, 1
+    weighting n_p, ps-1, ps-1, 1
+    Note: The weighting / masking term was necessary to avoid degenerate 但默认值
+    solutions on GPU; only observed on individual DTU scenes.
+    """
+    v00 = values[:, :-1, :-1] # (n_p,ps-1,ps-1,1)
+    v01 = values[:, :-1, 1:]
+    v10 = values[:, 1:, :-1]
+
+    if losstype == 'l2':
+        loss = ((v00 - v01) ** 2) + ((v00 - v10) ** 2)
+    elif losstype == 'l1':
+        loss = np.abs(v00 - v01) + np.abs(v00 - v10)
+    else:
+        raise ValueError('Not supported losstype.')
+
+    if weighting is not None:
+        loss = loss * weighting
+    return loss # (n_p,ps-1,ps-1,1)
+
+def compute_tvnorm_weight(step, max_step, weight_start=0.0, weight_end=0.0):
+    """Computes loss weight for tv norm.
+        这里的step 是 mapping 全局的计数器 包含init 
+    """ # 从regnerf移植过来
+    w = np.clip(step * 1.0 / (1 if (max_step < 1) else max_step), 0, 1)
+    return weight_start * (1 - w) + w * weight_end
 
 
 def get_rays(H, W, fx, fy, cx, cy, c2w, device):

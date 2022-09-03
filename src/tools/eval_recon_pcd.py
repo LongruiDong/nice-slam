@@ -1,6 +1,8 @@
 import argparse
 import random
-
+"""
+输入的 pred 是点云  为了评估 neuconw reprojrcted-clip.ply
+"""
 import numpy as np
 import open3d as o3d
 import torch
@@ -46,9 +48,11 @@ def get_align_transformation(rec_meshfile, gt_meshfile):
     """
     Get the transformation matrix to align the reconstructed mesh to the ground truth mesh.
     """
-    o3d_rec_mesh = o3d.io.read_triangle_mesh(rec_meshfile)
+    # o3d_rec_mesh = o3d.io.read_triangle_mesh(rec_meshfile)
+    o3d_rec_mesh = o3d.io.read_point_cloud(rec_meshfile)
     o3d_gt_mesh = o3d.io.read_triangle_mesh(gt_meshfile)
-    o3d_rec_pc = o3d.geometry.PointCloud(points=o3d_rec_mesh.vertices)
+    # o3d_rec_pc = o3d.geometry.PointCloud(points=o3d_rec_mesh.vertices)
+    o3d_rec_pc = o3d_rec_mesh
     o3d_gt_pc = o3d.geometry.PointCloud(points=o3d_gt_mesh.vertices)
     trans_init = np.eye(4)
     threshold = 0.1
@@ -93,22 +97,25 @@ def calc_3d_metric(rec_meshfile, gt_meshfile, align=True):
     3D reconstruction metric.
 
     """
-    mesh_rec = trimesh.load(rec_meshfile, process=False)
+    # mesh_rec = trimesh.load(rec_meshfile, process=False)
+    mesh_rec = o3d.io.read_point_cloud(rec_meshfile)
     mesh_gt = trimesh.load(gt_meshfile, process=False)
 
     if align:
         transformation = get_align_transformation(rec_meshfile, gt_meshfile)
-        mesh_rec = mesh_rec.apply_transform(transformation)
+        # mesh_rec = mesh_rec.apply_transform(transformation)
+        mesh_rec = mesh_rec.transform(transformation)
 
-    rec_pc = trimesh.sample.sample_surface(mesh_rec, 200000) # 200000 73000
-    rec_pc_tri = trimesh.PointCloud(vertices=rec_pc[0])
-
-    gt_pc = trimesh.sample.sample_surface(mesh_gt, 200000)
+    # rec_pc = trimesh.sample.sample_surface(mesh_rec, 200000)
+    # rec_pc_tri = trimesh.PointCloud(vertices=rec_pc[0])
+    rec_pc_tri = np.asarray(mesh_rec.points) # mesh_rec
+    points = np.asarray(mesh_rec.points)
+    gt_pc = trimesh.sample.sample_surface(mesh_gt, 200000) # points.shape[0]
     gt_pc_tri = trimesh.PointCloud(vertices=gt_pc[0])
-    accuracy_rec = accuracy(gt_pc_tri.vertices, rec_pc_tri.vertices)
-    completion_rec = completion(gt_pc_tri.vertices, rec_pc_tri.vertices)
+    accuracy_rec = accuracy(gt_pc_tri.vertices, rec_pc_tri) # rec_pc_tri.vertices
+    completion_rec = completion(gt_pc_tri.vertices, rec_pc_tri)
     completion_ratio_rec = completion_ratio(
-        gt_pc_tri.vertices, rec_pc_tri.vertices)
+        gt_pc_tri.vertices, rec_pc_tri)
     accuracy_rec *= 100  # convert to cm
     completion_rec *= 100  # convert to cm
     completion_ratio_rec *= 100  # convert to %
@@ -142,7 +149,8 @@ def calc_2d_metric(rec_meshfile, gt_meshfile, align=True, n_imgs=1000):
     cy = W/2.0-0.5
 
     gt_mesh = o3d.io.read_triangle_mesh(gt_meshfile)
-    rec_mesh = o3d.io.read_triangle_mesh(rec_meshfile)
+    # rec_mesh = trimesh.load(rec_meshfile, process=False)
+    rec_mesh = o3d.io.read_point_cloud(rec_meshfile)
     unseen_gt_pointcloud_file = gt_meshfile.replace('.ply', '_pc_unseen.npy')
     pc_unseen = np.load(unseen_gt_pointcloud_file)
     if align:

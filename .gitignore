@@ -137,3 +137,7 @@ dmypy.json
 .pyre/
 
 log
+output-reg
+*.out
+*.jpg
+*.png

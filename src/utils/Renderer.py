@@ -48,7 +48,7 @@ class Renderer(object):
             pi = pi.unsqueeze(0)
             if self.nice: #注意这里stage
                 ret = decoders(pi, c_grid=c, stage=stage)
-            else:
+            else: # imap* 
                 ret = decoders(pi, c_grid=None)
             ret = ret.squeeze(0)
             if len(ret.shape) == 1 and ret.shape[0] == 4:
@@ -62,7 +62,7 @@ class Renderer(object):
 
     def render_batch_ray(self, c, decoders, rays_d, rays_o, device, stage, gt_depth=None):
         """
-        Render color, depth and uncertainty of a batch of rays.
+        Render color, depth and uncertainty of a batch of rays. imap 和 nice-slam公共的代码 在query mlp 时会区分开
 
         Args:
             c (dict): feature grids.
@@ -77,10 +77,11 @@ class Renderer(object):
             depth (tensor): rendered depth.
             uncertainty (tensor): rendered uncertainty.
             color (tensor): rendered color.
+            regacc (tensor): rendered wt for regnerf!
         """
 
         N_samples = self.N_samples
-        N_surface = self.N_surface
+        N_surface = self.N_surface # 不同于 original nerf
         N_importance = self.N_importance
 
         N_rays = rays_o.shape[0]
@@ -89,23 +90,23 @@ class Renderer(object):
             gt_depth = None
         if gt_depth is None:
             N_surface = 0
-            near = 0.01
-        else:
+            near = 0.01 # 没有深度时 这表示 几乎从rays_O开始吧
+        else: # 还是会用深度 得到 near 相对有个先验 吧
             gt_depth = gt_depth.reshape(-1, 1)
             gt_depth_samples = gt_depth.repeat(1, N_samples)
-            near = gt_depth_samples*0.01
+            near = gt_depth_samples*0.01 # (N,sam#)
 
         with torch.no_grad():
             det_rays_o = rays_o.clone().detach().unsqueeze(-1)  # (N, 3, 1)
             det_rays_d = rays_d.clone().detach().unsqueeze(-1)  # (N, 3, 1)
             t = (self.bound.unsqueeze(0).to(device) -
-                 det_rays_o)/det_rays_d  # (N, 3, 2)
-            far_bb, _ = torch.min(torch.max(t, dim=2)[0], dim=1)
-            far_bb = far_bb.unsqueeze(-1)
+                 det_rays_o)/det_rays_d  # (N, 3, 2) 这段代码在mapping判断scaene是否在bound内 出现过
+            far_bb, _ = torch.min(torch.max(t, dim=2)[0], dim=1) # 是根据设置的cube bound 得到t- far
+            far_bb = far_bb.unsqueeze(-1) # (N, 1)
             far_bb += 0.01
 
         if gt_depth is not None: #gt_depth (4089,1) why 4089
-            # in case the bound is too large frame 25 (0,1)
+            # in case the bound is too large 每个ray的上界不至于太离谱的大 缩小sample空间
             far = torch.clamp(far_bb, 0,  torch.max(gt_depth*1.2))
         else:
             far = far_bb
@@ -149,9 +150,10 @@ class Renderer(object):
                 z_vals_surface[~gt_none_zero_mask,
                                :] = z_vals_surface_depth_zero
 
-        t_vals = torch.linspace(0., 1., steps=N_samples, device=device)
+        t_vals = torch.linspace(0., 1., steps=N_samples, device=device) # [0,1] 等距采样N_samp个点
 
-        if not self.lindisp:
+        # 有了初步的near far 后 可以选择是否退火 to do
+        if not self.lindisp: #默认false
             z_vals = near * (1.-t_vals) + far * (t_vals)
         else:
             z_vals = 1./(1./near * (1.-t_vals) + 1./far * (t_vals))
@@ -170,7 +172,7 @@ class Renderer(object):
                 torch.cat([z_vals, z_vals_surface.double()], -1), -1)
 
         pts = rays_o[..., None, :] + rays_d[..., None, :] * \
-            z_vals[..., :, None]  # [N_rays, N_samples+N_surface, 3]
+            z_vals[..., :, None]  # [N_rays, N_samples+N_surface, 3] z_val 才是实际的t
         pointsf = pts.reshape(-1, 3)
 
         raw = self.eval_points(pointsf, decoders, c, stage, device)
@@ -178,6 +180,8 @@ class Renderer(object):
 
         depth, uncertainty, color, weights = raw2outputs_nerf_color(
             raw, z_vals, rays_d, occupancy=self.occupancy, device=device)
+        # 根据regnerf 由weights 进一步得到 rendering['acc'] 来用到 depth patch loss
+        regacc = weights.sum(axis=-1) # (batchsize)
         if N_importance > 0:
             z_vals_mid = .5 * (z_vals[..., 1:] + z_vals[..., :-1])
             z_samples = sample_pdf(
@@ -193,9 +197,11 @@ class Renderer(object):
 
             depth, uncertainty, color, weights = raw2outputs_nerf_color(
                 raw, z_vals, rays_d, occupancy=self.occupancy, device=device)
-            return depth, uncertainty, color
+            # 根据regnerf 由weights 进一步得到 rendering['acc'] 来用到 depth patch loss
+            regacc = weights.sum(axis=-1)
+            return depth, uncertainty, color, regacc
 
-        return depth, uncertainty, color
+        return depth, uncertainty, color, regacc
 
     def render_img(self, c, decoders, c2w, device, stage, gt_depth=None):
         """
@@ -240,7 +246,7 @@ class Renderer(object):
                     ret = self.render_batch_ray(
                         c, decoders, rays_d_batch, rays_o_batch, device, stage, gt_depth=gt_depth_batch)
 
-                depth, uncertainty, color = ret
+                depth, uncertainty, color, _ = ret
                 depth_list.append(depth.double())
                 uncertainty_list.append(uncertainty.double())
                 color_list.append(color)
@@ -257,7 +263,7 @@ class Renderer(object):
     # this is only for imap*
     def regulation(self, c, decoders, rays_d, rays_o, gt_depth, device, stage='color'):
         """
-        Regulation that disencourage any geometry from the camera center to 0.85*depth.
+        Regulation that discourage any geometry from the camera center to 0.85*depth.
         For imap, the geometry will not be as good if this loss is not added.
 
         Args:

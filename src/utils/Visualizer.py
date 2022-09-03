@@ -8,8 +8,8 @@ from src.common import get_camera_from_tensor
 
 class Visualizer(object):
     """
-    Visualize itermediate results, render out depth, color and depth uncertainty images.
-    It can be called per iteration, which is good for debuging (to see how each tracking/mapping iteration performs).
+    Visualize intermediate results, render out depth, color and depth uncertainty images.
+    It can be called per iteration, which is good for debugging (to see how each tracking/mapping iteration performs).
 
     """
 
@@ -131,6 +131,6 @@ class Visualizer(object):
                     f'{self.vis_dir}/{idx:05d}_{iter:04d}.jpg', bbox_inches='tight', pad_inches=0.2)
                 plt.clf()
 
-                if self.verbose:
-                    print(
-                        f'Saved rendering visualization of color/depth image at {self.vis_dir}/{idx:05d}_{iter:04d}.jpg')
+                # if self.verbose:
+                #     print(
+                #         f'Saved rendering visualization of color/depth image at {self.vis_dir}/{idx:05d}_{iter:04d}.jpg')

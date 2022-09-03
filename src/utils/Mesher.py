@@ -45,7 +45,8 @@ class Mesher(object):
         self.marching_cubes_bound = torch.from_numpy(
             np.array(cfg['mapping']['marching_cubes_bound']) * self.scale)
 
-        self.frame_reader = get_dataset(cfg, args, self.scale, device='cpu')
+        # self.frame_reader = get_dataset(cfg, args, self.scale, device='cpu')
+        self.frame_reader = slam.frame_reader
         self.n_img = len(self.frame_reader)
 
         self.H, self.W, self.fx, self.fy, self.cx, self.cy = slam.H, slam.W, slam.fx, slam.fy, slam.cx, slam.cy
@@ -157,6 +158,9 @@ class Mesher(object):
                         gt_depth = keyframe['depth'].to(
                             device).reshape(1, 1, H, W)
                         vgrid = uv.reshape(1, 1, -1, 2)
+                        # normalized to [-1, 1] 有何影响 ln160--162
+                        vgrid[..., 0] = (vgrid[..., 0] / (W-1) * 2.0 - 1.0)
+                        vgrid[..., 1] = (vgrid[..., 1] / (H-1) * 2.0 - 1.0)
                         depth_sample = F.grid_sample(
                             gt_depth, vgrid, padding_mode='zeros', align_corners=True)
                         depth_sample = depth_sample.reshape(-1)
@@ -542,7 +546,7 @@ class Mesher(object):
                         rays_d_batch = rays_d[i:i+batch_size]
                         rays_o_batch = rays_o[i:i+batch_size]
                         gt_depth_batch = gt_depth[i:i+batch_size]
-                        depth, uncertainty, color = self.renderer.render_batch_ray(
+                        depth, uncertainty, color, _ = self.renderer.render_batch_ray(
                             c, decoders, rays_d_batch, rays_o_batch, device, 
                             stage='color', gt_depth=gt_depth_batch)
                         color_list.append(color)
