@@ -209,9 +209,12 @@ class NICE_SLAM():
         self.color_grid_len = color_grid_len
 
         c = {}
-        c_dim = cfg['model']['c_dim']
-        xyz_len = self.bound[:, 1]-self.bound[:, 0]
+        c_dim = cfg['model']['c_dim'] # map 每个voxel 32维
+        xyz_len = self.bound[:, 1]-self.bound[:, 0] #bound 各维度scale
 
+        # If you have questions regarding the swap of axis 0 and 2,
+        # please refer to https://github.com/cvg/nice-slam/issues/24
+        
         if self.coarse:
             coarse_key = 'grid_coarse'
             coarse_val_shape = list(

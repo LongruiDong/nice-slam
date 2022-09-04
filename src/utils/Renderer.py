@@ -77,7 +77,6 @@ class Renderer(object):
             depth (tensor): rendered depth.
             uncertainty (tensor): rendered uncertainty.
             color (tensor): rendered color.
-            regacc (tensor): rendered wt for regnerf!
         """
 
         N_samples = self.N_samples
@@ -180,8 +179,8 @@ class Renderer(object):
 
         depth, uncertainty, color, weights = raw2outputs_nerf_color(
             raw, z_vals, rays_d, occupancy=self.occupancy, device=device)
-        # 根据regnerf 由weights 进一步得到 rendering['acc'] 来用到 depth patch loss
-        regacc = weights.sum(axis=-1) # (batchsize)
+        # # 根据regnerf 由weights 进一步得到 rendering['acc'] 来用到 depth patch loss
+        # regacc = weights.sum(axis=-1) # (batchsize)
         if N_importance > 0:
             z_vals_mid = .5 * (z_vals[..., 1:] + z_vals[..., :-1])
             z_samples = sample_pdf(
@@ -197,11 +196,9 @@ class Renderer(object):
 
             depth, uncertainty, color, weights = raw2outputs_nerf_color(
                 raw, z_vals, rays_d, occupancy=self.occupancy, device=device)
-            # 根据regnerf 由weights 进一步得到 rendering['acc'] 来用到 depth patch loss
-            regacc = weights.sum(axis=-1)
-            return depth, uncertainty, color, regacc
+            return depth, uncertainty, color
 
-        return depth, uncertainty, color, regacc
+        return depth, uncertainty, color
 
     def render_img(self, c, decoders, c2w, device, stage, gt_depth=None):
         """
@@ -246,7 +243,7 @@ class Renderer(object):
                     ret = self.render_batch_ray(
                         c, decoders, rays_d_batch, rays_o_batch, device, stage, gt_depth=gt_depth_batch)
 
-                depth, uncertainty, color, _ = ret
+                depth, uncertainty, color = ret
                 depth_list.append(depth.double())
                 uncertainty_list.append(uncertainty.double())
                 color_list.append(color)
@@ -263,7 +260,7 @@ class Renderer(object):
     # this is only for imap*
     def regulation(self, c, decoders, rays_d, rays_o, gt_depth, device, stage='color'):
         """
-        Regulation that discourage any geometry from the camera center to 0.85*depth.
+on that discourage any geometry from the camera center to 0.85*depth.        Regulati
         For imap, the geometry will not be as good if this loss is not added.
 
         Args:
