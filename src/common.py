@@ -93,7 +93,7 @@ def get_rays_from_uv(i, j, c2w, H, W, fx, fy, cx, cy, device):
 def select_uv(i, j, n, depth, color, device='cuda:0'):
     """
     Select n uv from dense uv. 他这里没按I-map那样采样啊。。 均匀分布来采样
-    # i和j其实就是 图像裁剪后区域每像素的 下标 (u,v)
+    i和j其实就是 图像裁剪后区域每像素的 下标 (u,v)
     """
     i = i.reshape(-1)
     j = j.reshape(-1)
@@ -133,10 +133,30 @@ def select_uv(i, j, n, depth, color, device='cuda:0'):
     # return i, j, depth, color
 
 
-def get_sample_uv(H0, H1, W0, W1, n, depth, color, device='cuda:0'):
+def select_uv_byindex(i, j, n, depth, color, pixindex, device='cuda:0'):
+    """
+    Select n (实际是len(pixindex) <= n) uv from dense uv.
+    i和j其实就是 图像裁剪后区域每像素的 下标 (u,v)  shape (h,w)
+    """
+    i = i.reshape(-1) # 拉平之后 是按行
+    j = j.reshape(-1)
+    # indices = torch.randint(i.shape[0], (n,), device=device) # 值域[0，总像素数) 的size为(n)的向量
+    indices = pixindex # (<=n)
+    indices = indices.clamp(0, i.shape[0]) # 确保值域范围 （多此一举？ 上句已经保证了）
+    i = i[indices]  # (n) 按随机的索引的索引 拿出 选择的像素的下标
+    j = j[indices]  # (n)
+    depth = depth.reshape(-1)
+    color = color.reshape(-1, 3)
+    depth = depth[indices]  # (n)
+    color = color[indices]  # (n,3) 选中的像素上的深度 和 颜色
+    
+    return i, j, depth, color
+
+def get_sample_uv(H0, H1, W0, W1, n, depth, color, device='cuda:0', pixindex = None):
     """
     Sample n uv coordinates from an image region H0..H1, W0..W1
-    H0= edge_ H1=H-edge_ W0= edge_ W1=W-edge_ n 需要多少像素点参与优化 来自设置文件pixels:
+    H0= edge_ H1=H-edge_ W0= edge_ W1=W-edge_ n 需要多少像素点参与优化 来自设置文件
+    pixindex: 可选参数 使用给定的 img内像素的index来选择样本
     """
     dnn = depth.cpu().numpy().shape
     dnnsum = dnn[0] + dnn[1]
@@ -156,20 +176,25 @@ def get_sample_uv(H0, H1, W0, W1, n, depth, color, device='cuda:0'):
         traceback.print_exc()
     i, j = torch.meshgrid(torch.linspace( #目标图像区域 网格 list[20, 1221] list[20, 354] 
         W0, W1-1, W1-W0).to(device), torch.linspace(H0, H1-1, H1-H0).to(device))
-    i = i.t()  # transpose (1202,335)
-    j = j.t()  # i和j其实就是 图像区域每像素的 下标 (u,v) 矩阵
-    i, j, depth, color = select_uv(i, j, n, depth, color, device=device) #拿出随机采样的像素 的 u v d c 向量们
+    i = i.t()  # transpose (1202,335)->(h,w)
+    j = j.t()  # 转置之后 i和j其实就是 图像区域每像素的 下标 (u,v) 矩阵
+    if pixindex is None:
+        i, j, depth, color = select_uv(i, j, n, depth, color, device=device) #拿出随机采样的像素 的 u v d c 向量们
+    else: # 有参数指定后 那就按照此选择像素
+        i, j, depth, color = select_uv_byindex(i, j, n, depth, color, pixindex, device=device)
+        
     return i, j, depth, color
 
 
-def get_samples(H0, H1, W0, W1, n, H, W, fx, fy, cx, cy, c2w, depth, color, device):
+def get_samples(H0, H1, W0, W1, n, H, W, fx, fy, cx, cy, c2w, depth, color, device, pixindex = None):
     """
     Get n rays from the image region H0..H1, W0..W1. 图像裁掉了边缘一些像素
     c2w is its camera pose and depth/color is the corresponding image tensor.
     (n,3) (n,3)  (n) (n,3)
+    pixindex: 可选参数 使用给定的 img内像素的index来选择样本
     """
     i, j, sample_depth, sample_color = get_sample_uv( # 先采样n个像素 对应的下标 深度 颜色 这块不会有我呢提 和 Bound无关
-        H0, H1, W0, W1, n, depth, color, device=device)
+        H0, H1, W0, W1, n, depth, color, device=device, pixindex= pixindex)
     rays_o, rays_d = get_rays_from_uv(i, j, c2w, H, W, fx, fy, cx, cy, device)
     return rays_o, rays_d, sample_depth, sample_color, i, j #增加返回采样点坐标 for debug
 

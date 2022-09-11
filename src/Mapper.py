@@ -12,6 +12,8 @@ from src.common import (get_camera_from_tensor, get_samples,
 from src.utils.datasets import get_dataset
 from src.utils.Visualizer import Visualizer
 
+def cut(obj, sec):
+    return [obj[i:i+sec] for i in range(0,len(obj),sec)]
 
 class Mapper(object):
     """
@@ -288,8 +290,16 @@ class Mapper(object):
                     frame_idx = idx
                     tmp_gt_c2w = gt_cur_c2w
                     tmp_est_c2w = cur_c2w
-                keyframes_info.append(
+                keyframes_info.append( #  这里其实已经保存 每次局部优化 涉及的帧的信息 之后读取来看
                     {'idx': frame_idx, 'gt_c2w': tmp_gt_c2w, 'est_c2w': tmp_est_c2w})
+            # 直接打印得了
+            print('current frame {:d}, frame in opt window: '.format(idx))
+            for il, kdic in enumerate(keyframes_info):
+                fidx = kdic['idx']
+                if il>0:
+                    print(', ',end="")
+                print('{:d}'.format(fidx),end="")
+            print(' ') 
             self.selected_keyframes[idx] = keyframes_info
 
         pixs_per_image = self.mapping_pixels//len(optimize_frame) # 每个kf的像素数
@@ -397,7 +407,17 @@ class Mapper(object):
             from torch.optim.lr_scheduler import StepLR
             scheduler = StepLR(optimizer, step_size=200, gamma=0.8)
 
+        # 更改image上采样方式 保证这些window上所有pixel都被覆盖到
+        # 用索引的方式
+        index_per_img = torch.arange(0,H*W,1) # 每张图片总索引 (1200*680=816000)
+        batch_index_perimg_list = cut(index_per_img, pixs_per_image) # list 输出的最后一组 长度 <=pixs_per_image
+        # num_joint_iters 应该就是 len(batch_index_perimg) 但对于 first frame 以及前150帧 不够5帧时 设置的迭代次数是更大！
+        assert num_joint_iters>=len(batch_index_perimg_list)
         for joint_iter in range(num_joint_iters):
+            joint_iter_mod = joint_iter
+            if joint_iter >= len(batch_index_perimg_list):
+                joint_iter_mod = joint_iter % len(batch_index_perimg_list) # 初期 迭代多于
+            batch_index_iter = batch_index_perimg_list[joint_iter_mod] # (<=pixs_per_image)
             if self.nice:
                 if self.frustum_feature_selection:
                     for key, val in c.items():
@@ -475,9 +495,10 @@ class Mapper(object):
                         c2w = cur_c2w
                 # if frame == -1:#  idx -1 就是指当前帧
                     
-                # 每次batch iter 就要随机采样一次
+                # 每次batch iter 就要随机采样一次 # 测试新的采样像素/ray的方式 按照给定的索引 公用一个函数
                 batch_rays_o, batch_rays_d, batch_gt_depth, batch_gt_color, sti, stj = get_samples(
-                    0, H, 0, W, pixs_per_image, H, W, fx, fy, cx, cy, c2w, gt_depth, gt_color, self.device)
+                    0, H, 0, W, pixs_per_image, H, W, fx, fy, cx, cy, c2w, gt_depth, gt_color, self.device,
+                    pixindex=batch_index_iter)
                 if frame == -1: #记录当前帧 本次循环的采样点 #  idx -1 就是指当前帧
                     self.slecti = sti
                     self.slectj = stj
