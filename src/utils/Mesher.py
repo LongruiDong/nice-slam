@@ -360,7 +360,7 @@ class Mesher(object):
                  clean_mesh=True,
                  get_mask_use_all_frames=False):
         """
-        Extract mesh from scene representation and save mesh to file.
+        Extract mesh from scene representation and save mesh to file. #似乎和 coarse grid 无关 只与 fine color 两个grid有关
 
         Args:
             mesh_out_file (str): output mesh filename.

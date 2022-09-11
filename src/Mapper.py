@@ -290,6 +290,14 @@ class Mapper(object):
                     tmp_est_c2w = cur_c2w
                 keyframes_info.append(
                     {'idx': frame_idx, 'gt_c2w': tmp_gt_c2w, 'est_c2w': tmp_est_c2w})
+            # 直接打印得了
+            print('current frame {:d}, frame in opt window: '.format(idx))
+            for il, kdic in enumerate(keyframes_info):
+                fidx = kdic['idx']
+                if il>0:
+                    print(', ',end="")
+                print('{:d}'.format(fidx),end="")
+            print(' ')
             self.selected_keyframes[idx] = keyframes_info
 
         pixs_per_image = self.mapping_pixels//len(optimize_frame) # 每个kf的像素数
@@ -618,7 +626,7 @@ class Mapper(object):
                     self.fine_iter_ratio = 0.0
                     num_joint_iters *= 5
                     self.fix_color = True # color refine时 要固定住decoder 只优化grid
-                    self.frustum_feature_selection = False
+                    self.frustum_feature_selection = False # 不在只限制视锥内的grid feature
                     if self.verbose:
                         print(Fore.GREEN)
                         print("color refinement postprocess... ")

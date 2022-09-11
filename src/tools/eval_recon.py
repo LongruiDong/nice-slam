@@ -224,6 +224,7 @@ if __name__ == '__main__':
     parser.add_argument('-3d', '--metric_3d',
                         action='store_true', help='enable 3D metric')
     args = parser.parse_args()
+    print('evaluating {}'.format(args.rec_mesh))
     if args.metric_3d:
         calc_3d_metric(args.rec_mesh, args.gt_mesh)
 

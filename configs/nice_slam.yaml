@@ -60,8 +60,8 @@ mapping:
   keyframe_every: 50 # 成为kf的间隔
   mapping_window_size: 5
   w_color_loss: 0.2
-  frustum_feature_selection: True
-  keyframe_selection_method: 'overlap'
+  frustum_feature_selection: True # 不同于imap
+  keyframe_selection_method: 'overlap' # 不同于imap 对grid 局部更新
   save_selected_keyframes_info: False
   lr_first_factor: 5 #
   lr_factor: 1 #初始化之后 因子1 即不再扩大

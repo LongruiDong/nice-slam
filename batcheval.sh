@@ -1,5 +1,5 @@
 #!/bin/bash
-CUDA_VISIBLE_DEVICES=2
+CUDA_VISIBLE_DEVICES=1
 
 GT_MESH=Datasets/Replica/cull_replica_mesh/office0.ply
 
@@ -17,8 +17,13 @@ GT_MESH=Datasets/Replica/cull_replica_mesh/office0.ply
 # python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/final_mesh_eval_rec.ply --gt_mesh $GT_MESH -2d -3d
 
 
-OUTPUT_FOLDER=output-reg/Replica/office0gt-nodloss
-python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/final_mesh_eval_rec.ply --gt_mesh $GT_MESH -2d -3d
+# OUTPUT_FOLDER=output-reg/Replica/office0gt-nodloss
+# OUTPUT_FOLDER=output/Replica/office0gt-nodloss-woNsurf
+# OUTPUT_FOLDER=output/Replica/office0gt-nodloss-woNsurf-Ni32
+# OUTPUT_FOLDER=output/Replica/office0gt-nodloss-woNsurf-Ni32-ws10-p2k # output/Replica/office0gt-nodloss-woNsurf-Ni32-ws41 # output/Replica/office0gt-nodloss-woNsurf-Ni32-ws10-p2k-f1k5-it1k # output/Replica/office0gt-nodloss-woNsurf-Ni32-p1k-f4k-it4k
+OUTPUT_FOLDER=/home/dlr/Project1/nice-slam/output/Replica/office0gt-nodloss-woNsurf-Ni32-p1k-f4k-it4k-mysamp
+python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/01950_mesh.ply --gt_mesh $GT_MESH -2d -3d
+
 
 # OUTPUT_FOLDER=output/Replica/office0gt-nodepthloss
 # python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/final_mesh_eval_rec.ply --gt_mesh $GT_MESH -2d -3d
@@ -50,8 +55,8 @@ python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/final_mesh_eval_re
 # OUTPUT_FOLDER=/home/dlr/Project/NeuralRecon-W/results/replica/train-replicaoffice0_scale1-20220827_125619_epoch=19-step=803933
 # python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/extracted_mesh_res_256_radius_1.0_colored-clip.ply --gt_mesh $GT_MESH -3d -2d
 
-# OUTPUT_FOLDER=/home/dlr/Project/nerf_pl
-# python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/nerfw_office0.ply --gt_mesh $GT_MESH -3d -2d
+# OUTPUT_FOLDER=/home/dlr/Project/nerf_pl # nerfw_office0-noshuffle_64.ply nerfw_office0-noshuffle-ep0_64.ply
+# python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/nerfw_office0-noshuffle-ep0_64.ply --gt_mesh $GT_MESH -3d -2d
 
 # # assign any output_folder and gt mesh you like, here is just an example
 # OUTPUT_FOLDER=output/Replica/room2
