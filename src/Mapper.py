@@ -411,6 +411,7 @@ class Mapper(object):
         # 用索引的方式
         index_per_img = torch.arange(0,H*W,1) # 每张图片总索引 (1200*680=816000)
         batch_index_perimg_list = cut(index_per_img, pixs_per_image) # list 输出的最后一组 长度 <=pixs_per_image
+        # 会有 AssertionError
         # num_joint_iters 应该就是 len(batch_index_perimg) 但对于 first frame 以及前150帧 不够5帧时 设置的迭代次数是更大！
         assert num_joint_iters>=len(batch_index_perimg_list)
         for joint_iter in range(num_joint_iters):
