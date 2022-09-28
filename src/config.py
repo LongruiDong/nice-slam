@@ -41,6 +41,20 @@ def load_config(path, default_path=None):
 
     return cfg
 
+def save_config(cfg, path):
+    """
+    Loads config file.
+
+    Args:
+        path (str): path to config file.
+    Returns:
+        bool .
+
+    """
+    with open(path, 'w') as file:
+        documents = yaml.dump(cfg, file)
+    print('Save params to : {}'.format(path))
+    return True
 
 def update_recursive(dict1, dict2):
     """

@@ -1,4 +1,4 @@
-import argparse
+import argparse, os
 import random
 # -*- coding:utf-8 -*-
 import numpy as np
@@ -36,14 +36,12 @@ def main():
 
     cfg = config.load_config(
         args.config, 'configs/nice_slam.yaml' if args.nice else 'configs/imap.yaml')
-    # try:
-    #     2/0
-    #     print(x)
-    # except Exception as e:
-    #     traceback.print_exc()
     # get_dataset(cfg, args, 1.0)
     slam = NICE_SLAM(cfg, args)
-    print(cfg)
+    # print(cfg)
+    # 保存到output 作为备份
+    savepath =  os.path.join(cfg['data']['output'], 'param.yaml')
+    config.save_config(cfg, savepath)
     slam.run()
 
 

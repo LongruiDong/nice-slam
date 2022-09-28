@@ -4,6 +4,7 @@ scale: 0.1
 verbose: True
 occupancy: False
 low_gpu_mem: True
+rgbonly: False # 增加选项 是否为单目模式 即无depth loss
 grid_len:
   coarse: 2 
   middle: 0.32 
@@ -136,6 +137,7 @@ rendering:
 data:
   dim: 3
   wnoise: False #使用噪声深度为输入
+  endnum: -1 # 实际那前#帧 若为-1 则默认全部
 model:
   c_dim: 32
   coarse_bound_enlarge: 2
