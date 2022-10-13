@@ -25,7 +25,8 @@ class Mapper(object):
         self.cfg = cfg
         self.args = args
         self.coarse_mapper = coarse_mapper #coarse level的优化
-
+        self.rgbonly = slam.rgbonly
+        self.guide_sample = slam.guide_sample
         self.idx = slam.idx
         self.nice = slam.nice
         self.c = slam.shared_c
@@ -518,16 +519,25 @@ class Mapper(object):
                 batch_gt_color = batch_gt_color[inside_mask]
             ret = self.renderer.render_batch_ray(c, self.decoders, batch_rays_d,
                                                  batch_rays_o, device, self.stage,
-                                                 gt_depth=None if self.coarse_mapper else batch_gt_depth) # 突然意识到之前这里 还是会根据gt depth 采样ray上表面附近的
+                                                 gt_depth=None if ( self.coarse_mapper or (not self.guide_sample) ) else batch_gt_depth) # 突然意识到之前这里 还是会根据gt depth 采样ray上表面附近的
             depth, uncertainty, color = ret
             # 和 tracker中的改动一致
             depth_mask = (batch_gt_depth > 0)# & (batch_gt_depth < 600) #只考虑mask内的像素参与误差 # 对于outdoor 加上 不属于无穷远 vkitti 655.35
             # 这里测试 loss 改为 color only loss
-            loss = torch.abs(
-                batch_gt_color[depth_mask]-color[depth_mask]).sum() # batch_gt_depth[depth_mask]-depth[depth_mask] batch_gt_color[depth_mask]-color[depth_mask]
-            if ((not self.nice) or (self.stage == 'color')):
+            if self.rgbonly:
+                loss = torch.tensor(0.0, requires_grad=True).to(device)  # 其他阶段都没color 下面还要加
+                self.w_color_loss = 1.
+                # loss = torch.abs(
+                #     batch_gt_color[depth_mask]-color[depth_mask]).sum() # batch_gt_depth[depth_mask]-depth[depth_mask] batch_gt_color[depth_mask]-color[depth_mask]
+            else: # 否则还是原来 rgb-d
+                loss = torch.abs(
+                    batch_gt_depth[depth_mask]-depth[depth_mask]).sum()
+            if ((not self.nice) or (self.stage == 'color')): # 才发现 其他stage color是0 所以之前 rgb only 时应该 都改为color stage,反正其他stage color loss是错的
                 color_loss = torch.abs(batch_gt_color - color).sum()
                 weighted_color_loss = self.w_color_loss*color_loss
+                if self.rgbonly:
+                    self.w_color_loss = 1.
+                    weighted_color_loss = color_loss
                 loss += weighted_color_loss
 
             # for imap*, it uses volume density
@@ -675,7 +685,7 @@ class Mapper(object):
                         or idx == self.n_img-1:
                     self.logger.log(idx, self.keyframe_dict, self.keyframe_list,
                                     selected_keyframes=self.selected_keyframes
-                                    if self.save_selected_keyframes_info else None)
+                                    if False else None) # self.save_selected_keyframes_info
 
                 self.mapping_idx[0] = idx
                 self.mapping_cnt[0] += 1

@@ -17,6 +17,7 @@ class Renderer(object):
         self.occupancy = cfg['occupancy']
         self.nice = slam.nice
         self.bound = slam.bound
+        self.guide_sample = slam.guide_sample
 
         self.H, self.W, self.fx, self.fy, self.cx, self.cy = slam.H, slam.W, slam.fx, slam.fy, slam.cx, slam.cy
 
@@ -85,7 +86,7 @@ class Renderer(object):
 
         N_rays = rays_o.shape[0]
 
-        if stage == 'coarse':
+        if stage == 'coarse' or (not self.guide_sample):
             gt_depth = None
         if gt_depth is None:
             N_surface = 0

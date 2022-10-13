@@ -4,6 +4,8 @@ scale: 0.1
 verbose: True
 occupancy: False
 low_gpu_mem: True
+rgbonly: False # 增加选项 是否为单目模式 即无depth loss
+guidesample: False # 增加选项 测试深度引导对在线的作用
 grid_len:
   coarse: 2 
   middle: 0.32 

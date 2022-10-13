@@ -29,6 +29,8 @@ class NICE_SLAM():
         self.args = args
         self.nice = args.nice
         # 这些变量来自与yaml哪里
+        self.guide_sample = cfg['guidesample']
+        self.rgbonly = cfg['rgbonly']
         self.coarse = cfg['coarse']
         self.occupancy = cfg['occupancy']
         self.low_gpu_mem = cfg['low_gpu_mem']
@@ -66,7 +68,8 @@ class NICE_SLAM():
             pass
 
         self.frame_reader = get_dataset(cfg, args, self.scale)
-        print('use noise depth {}'.format(self.frame_reader.wnoise))
+        # print('use noise depth {}'.format(self.frame_reader.wnoise))
+        print('use depth guide sample? : {}'.format(self.guide_sample))
         self.n_img = len(self.frame_reader)
         self.estimate_c2w_list = torch.zeros((self.n_img, 4, 4))
         self.estimate_c2w_list.share_memory_()
@@ -93,7 +96,7 @@ class NICE_SLAM():
         self.mesher = Mesher(cfg, args, self)
         self.logger = Logger(cfg, args, self)
         self.mapper = Mapper(cfg, args, self, coarse_mapper=False)
-        if self.coarse:
+        if self.coarse and (not self.rgbonly): # (not self.rgbonly) False
             self.coarse_mapper = Mapper(cfg, args, self, coarse_mapper=True)
         self.tracker = Tracker(cfg, args, self)
         self.print_output_desc()
@@ -303,7 +306,7 @@ class NICE_SLAM():
             elif rank == 1:
                 p = mp.Process(target=self.mapping, args=(rank, ))
             elif rank == 2:
-                if self.coarse:
+                if self.coarse and (not self.rgbonly): # (not self.rgbonly) False
                     p = mp.Process(target=self.coarse_mapping, args=(rank, )) # coarse mapping独立出来线程
                 else:
                     continue

@@ -11,6 +11,7 @@ from torch.utils.data import Dataset
 import yaml
 from tqdm import tqdm
 import copy
+import random
 # 是否用双目生成新的depth 对于双目数据
 makedepth = False # False True
 usegtdepth = True # 对于合成数据vktti tartanair 是否使用原始完美深度
@@ -175,6 +176,23 @@ class BaseDataset(Dataset):
             depth_data = depth_data[edge:-edge, edge:-edge]
         pose = self.poses[index]
         pose[:3, 3] *= self.scale #和深度x同一尺度因子
+        if False: # 稀疏化depth
+            mask1 = -np.ones_like(depth_data)
+            ikp = np.array(random.sample(range(0, W-1), 100))
+            jkp = np.array(random.sample(range(0, H-1), 100))
+            for k in range(ikp.shape[0]):
+                mask1[jkp[k], ikp[k]] = 1
+            mask2 = mask1 < 0
+            depth_data[mask2] = -2
+            # i, j = torch.meshgrid(torch.linspace( #目标图像区域 网格 list[20, 1221] list[20, 354] 
+            #     0, W-1, W), torch.linspace(H, H-1, H))
+            # i = i.t()  # transpose (1202,335)
+            # j = j.t()  # i和j其实就是 图像区域每像素的 下标 (u,v) 矩阵
+            # i = i.reshape(-1)
+            # j = j.reshape(-1)
+            # indices = torch.randint(i.shape[0], (100,)) # 值域[0，总像素数) 的size为(n)的向量
+            # indices = indices.clamp(0, i.shape[0]) # 确保值域范围 （多此一举？ 上句已经保证了）
+            
         return index, color_data.to(self.device), depth_data.to(self.device), pose.to(self.device)
                     
 
@@ -228,7 +246,7 @@ class Replica(BaseDataset):
         # dnet预测的不确定性路径
         self.stdv_paths = sorted(
                 glob.glob(f'{self.input_folder}/dstdpred/dstdv*.npy'))
-        self.n_img = len(self.color_paths) # 301 len(self.color_paths) #测试观测不够时 的fusion效果 1000
+        self.n_img = len(self.color_paths) # 301 len(self.color_paths) #测试观测不够时 的fusion效果 1000 16 init
         print('imagelen: {}'.format(self.n_img))
         self.load_poses(f'{self.input_folder}/traj.txt')
 

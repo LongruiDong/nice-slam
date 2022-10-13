@@ -1,4 +1,7 @@
 dataset: 'replica'
+coarse: False # False True
+rgbonly: True # 增加选项 是否为单目模式 即无depth loss
+guidesample: False # 增加选项 测试深度引导对在线的作用 False 默认  
 meshing:
   eval_rec: True
 tracking:
@@ -22,6 +25,9 @@ mapping:
   pixels: 1000
   iters_first: 1500
   iters: 60
+  middle_iter_ratio: -1. # 0.4 # rgbonly时 只有color stage
+  fine_iter_ratio: -1. # 0.6
+  save_selected_keyframes_info: True
 cam:
   H: 680
   W: 1200

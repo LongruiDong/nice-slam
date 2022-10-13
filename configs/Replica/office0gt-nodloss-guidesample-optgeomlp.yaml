@@ -1,7 +1,7 @@
 inherit_from: configs/Replica/replica.yaml
 # scale: 5 # 深度和pose 平移都x此尺度1 4 5 测试
 rgbonly: True # 增加选项 是否为单目模式 即无depth loss
-guidesample: False # 增加选项 测试深度引导对在线的作用
+guidesample: True # 增加选项 测试深度引导对在线的作用
 tracking:
   gt_camera: True #? True False
 mapping:
@@ -21,16 +21,20 @@ mapping:
   fine_iter_ratio: -1. # 0.6
   every_frame: 25 # 5| 25 和 离线的80kf来对比
   keyframe_every: 50
+  mesh_freq: 500
   save_selected_keyframes_info: True
+  fix_fine: False # 测试几何decoder也一同优化 !
+  fix_color: False
+  frustum_feature_selection: True # 默认 True
 rendering:
   N_samples: 32 #N_strat
-  N_surface: 0 #在深度周围 16| 0 
-  N_importance: 32 #为啥是0 nerf里是有这一步 hirecial 采样吧 12(imap*) 16(总数和原始保持一致) 32
+  N_surface: 32 #在深度周围 16| 0 
+  N_importance: 0 #为啥是0 nerf里是有这一步 hirecial 采样吧 12(imap*) 16(总数和原始保持一致) 32
   lindisp: False
   perturb: 0.0 
 data:
   input_folder: Datasets/Replica/office0
-  output: output/Replica/office0gt-nodloss1-Ni32-ef25-it1k-resize2 # -Ni16-p1k-f4k-it4k -it1k   office0gt-nodloss1-woNsurf-Ni32-p1k-f4k-it4k-init
+  output: output/Replica/office0gt-nodloss1-Ns32-ef25-it1k-guidesamp-resize2-optgeomlp #-woffs # -Ni16-p1k-f4k-it4k -it1k   office0gt-nodloss1-woNsurf-Ni32-p1k-f4k-it4k-init
 cam:
   # depth_trunc: -1 # add for limit bound discard larger depth
   # 增加根据dnet预测的深度的不确定性来prune pred depth

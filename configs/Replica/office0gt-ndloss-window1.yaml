@@ -30,21 +30,24 @@ mapping:
   # [[-0.6,1.1,[-2.2,0.4],[0.2,1.2]]
 
   BA: False # True #mapping是否一同优化位姿 False
-  iters_first: 4000 # 1500| 2000 4000
-  iters: 4000 # 测试增大迭代次数 60| 100 120 600 1000 4000
+  iters_first: 1500 # 1500| 2000 4000
+  iters: 1000 # 测试增大迭代次数 60| 100 120 600 1000 4000
   # no_vis_on_first_frame: False # True
-  mapping_window_size: 5
-  pixels: 1000 # 窗口内若干关键帧使用的总像素(ray)数 实际中每个kf中ray数目更少 1000/5=200|  4096 1000*5=5000 2048*5=10240 4096*5=20480
-  vis_inside_freq: 400 # 30| 200 
+  mapping_window_size: 10 # 5| 10 41 因为默认每50一个kf 最多40个kf 这里窗口加最大
+  pixels: 2000 # 窗口内若干关键帧使用的总像素(ray)数 实际中每个kf中ray数目更少 1000/5=200|  4096 1000*5=5000 2048*5=10240 4096*5=20480
+  vis_inside_freq: 30 # 30| 100 200
+  save_selected_keyframes_info: True
+  middle_iter_ratio: -1. # 0.4 # rgbonly时 只有color stage
+  fine_iter_ratio: -1. # 0.6
 rendering:
   N_samples: 32 #N_strat
   N_surface: 0 #在深度周围 16| 0 
-  N_importance: 32 #为啥是0 nerf里是有这一步 hirecial 采样吧 12(imap*) 16(总数和原始保持一致) 32
+  N_importance: 32 #为啥是0 nerf里是有这一步 hirecial 采样吧 12(imap*) 32
   lindisp: False
   perturb: 0.0 
 data:
   input_folder: Datasets/Replica/office0
-  output: output/Replica/office0gt-nodloss1-woNsurf-Ni32-f4k-it4k # 增大采样ray 但同时减少iter
+  output: output/Replica/office0gt-nodloss1-woNsurf-Ni32-ws10-p2k-it1k # -it1k
 cam:
   # depth_trunc: -1 # add for limit bound discard larger depth
   # 增加根据dnet预测的深度的不确定性来prune pred depth
