@@ -138,6 +138,8 @@ dmypy.json
 
 log
 output-reg
+output_imap-reg
 *.out
 *.jpg
 *.png
+triangulation

@@ -1,0 +1,38 @@
+inherit_from: configs/Replica/replica.yaml
+# scale: 5 # 深度和pose 平移都x此尺度1 4 5 测试
+rgbonly: True # 增加选项 是否为单目模式 即无depth loss
+guidesample: False # 增加选项 测试深度引导对在线的作用
+tracking:
+  gt_camera: True #? True False
+mapping:
+  bound: [[-5.5,5.9],[-6.7,5.4],[-4.7,5.3]]
+  marching_cubes_bound: [[-5.5,5.9],[-6.7,5.4],[-4.7,5.3]]
+
+  BA: False # True #mapping是否一同优化位姿 False
+  iters_first: 1500 # 1500| 2000 4000
+  iters: 1000 # 测试增大迭代次数 60| 100 120 600 1000 4000
+  no_vis_on_first_frame: False # True
+  # no_mesh_on_first_frame: False
+  no_log_on_first_frame: False
+  mapping_window_size: 5
+  pixels: 1000 # 窗口内若干关键帧使用的总像素(ray)数 实际中每个kf中ray数目更少 1000/5=200|  4096 1000*5=5000 2048*5=10240 4096*5=20480
+  vis_inside_freq: 200 # 30| 200 60
+  middle_iter_ratio: -1. # 0.4 # rgbonly时 只有color stage
+  fine_iter_ratio: -1. # 0.6
+  every_frame: 25 # 5| 25 和 离线的80kf来对比
+  keyframe_every: 50
+  save_selected_keyframes_info: True
+rendering:
+  N_samples: 32 #N_strat
+  N_surface: 0 #在深度周围 16| 0 
+  N_importance: 32 #为啥是0 nerf里是有这一步 hirecial 采样吧 12(imap*) 16(总数和原始保持一致) 32
+  lindisp: False
+  perturb: 0.0 
+data:
+  input_folder: Datasets/Replica/office0
+#   output: output/Replica/office0gt-nodloss1-Ni32-ef25-it1k-resize2 # -Ni16-p1k-f4k-it4k -it1k   office0gt-nodloss1-woNsurf-Ni32-p1k-f4k-it4k-init
+cam:
+  # depth_trunc: -1 # add for limit bound discard larger depth
+  # 增加根据dnet预测的深度的不确定性来prune pred depth
+  dstdv_cut_max: -1  # 对于office 实际最大值在0.35左右 0.25 0.2 0.15
+  # crop_size: [340,600] # 为了和离线公平对比 使用一半大小的图片

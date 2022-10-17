@@ -45,8 +45,8 @@ def align(model, data):
     """Align two trajectories using the method of Horn (closed-form).
 
     Input:
-    model -- first trajectory (3xn)
-    data -- second trajectory (3xn)
+    model -- first trajectory (3xn) pred 这里的顺序是这个
+    data -- second trajectory (3xn) gt 
 
     Output:
     rot -- rotation matrix (3x3)
@@ -147,7 +147,7 @@ def evaluate_ate(first_list, second_list, plot="", _args=""):
     second_xyz = numpy.matrix([[float(value)*float(args.scale)
                               for value in second_list[b][0:3]] for a, b in matches]).transpose()
 
-    rot, trans, trans_error = align(second_xyz, first_xyz)
+    rot, trans, trans_error = align(second_xyz, first_xyz) # (pred, gt)
 
     second_xyz_aligned = second_xyz # rot * second_xyz + trans
 
