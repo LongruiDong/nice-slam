@@ -1,7 +1,16 @@
 """
-利用~/Project1/ORB_SLAM2  拿出来的处理过的 inlierpcd.ply
+利用~/Project1/ORB_SLAM2  拿出来的所有需要的数据
+/home/dlr/Project1/ORB_SLAM2_Enhanced/result:
+####.txt (所有kf 但以frameid为名) (首行是 tum 格式 Tcw (8,)) 其余 kptid u v 3dpid(-1表示没有对应) x y z 
+mappts.txt 3dpid x y z [obsv_frameid kptid ....(repeat) ]
+KeyFrameTrajectory.txt tum 格式 Twc kf位姿
+office0_orb_mappts.txt 仅是所有3d点坐标 (验证过各文件 一致 除了pose还没验证)
 再这里进行三角剖分 并投影到图像 注意是 所有点 和 有效的三角形
 并估计有效区域的depth 保存并可视化
+
+尺度问题 放在nice-slam 里的scale 参数得了，那这里就需要用位姿估计尺度了
+
+subdiv https://zhuanlan.zhihu.com/p/340510482
 """
 
 import argparse, os, copy
@@ -21,6 +30,76 @@ from src.utils.datasets import get_dataset
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon
+
+import cv2
+
+fps = 10 # 生成伪时间 但要根据设置的帧率
+
+def align(model,data,calc_scale=True):
+    """Align two trajectories using the method of Horn (closed-form).
+    
+    Input:
+    model -- first trajectory (3xn) 应该得是gt吧 这是为了 最后评估时的尺度是在gt上 否则结果数字失真
+    data -- second trajectory (3xn) est
+    
+    Output:
+    rot -- rotation matrix (3x3)  此SE3变换应该是把 model 变 为 data
+    trans -- translation vector (3x1)
+    trans_error -- translational error per point (1xn)
+    s -- model 相对于 data 的尺度, 即 data*s --> model
+    """
+    np.set_printoptions(precision=3,suppress=True)
+    model_zerocentered = model - model.mean(1)
+    data_zerocentered = data - data.mean(1)
+    
+    W = np.zeros( (3,3) )
+    for column in range(model.shape[1]):
+        W += np.outer(model_zerocentered[:,column],data_zerocentered[:,column])
+    U,d,Vh = np.linalg.linalg.svd(W.transpose())
+    S = np.matrix(np.identity( 3 ))
+    if(np.linalg.det(U) * np.linalg.det(Vh)<0):
+        S[2,2] = -1
+    rot = U*S*Vh
+
+    if calc_scale:
+        rotmodel = rot*model_zerocentered
+        dots = 0.0
+        norms = 0.0
+        for column in range(data_zerocentered.shape[1]):
+            dots += np.dot(data_zerocentered[:,column].transpose(),rotmodel[:,column])
+            normi = np.linalg.norm(model_zerocentered[:,column])
+            norms += normi*normi
+        # s = float(dots/norms)  
+        s = float(norms/dots)
+    else:
+        s = 1.0  
+
+    # trans = data.mean(1) - s*rot * model.mean(1)
+    # model_aligned = s*rot * model + trans
+    # alignment_error = model_aligned - data
+
+    # scale the est to the gt, otherwise the ATE could be very small if the est scale is small
+    trans = s*data.mean(1) - rot * model.mean(1)
+    model_aligned = rot * model + trans
+    data_alingned = s * data
+    alignment_error = model_aligned - data_alingned
+    
+    trans_error = np.sqrt(np.sum(np.multiply(alignment_error,alignment_error),0)).A[0]
+        
+    return rot,trans,trans_error, s
+
+def SE3toQT(RT):
+    """
+    Convert transformation matrix to quaternion and translation. (tum 格式)
+    x y z i j k w
+    """
+    R, T = RT[:3, :3], RT[:3, 3]
+    rot = Matrix(R)
+    quadw = rot.to_quaternion() # w i j k https://docs.blender.org/api/current/mathutils.html#mathutils.Quaternion
+    # quad = quadw[1, 2, 3, 0] # i j k w
+    quad = [quadw[1], quadw[2], quadw[3], quadw[0]]
+    tq = np.concatenate([T, quad], 0) # x y z i j k w
+    return tq
 
 def TQtoSE3(inputs):
     """
@@ -70,163 +149,239 @@ def update_cam(cfg):
     
     return copy.deepcopy(K), H, W
 
-def main(cfg, args, orbpcdfile = "/home/dlr/Project1/ORB_SLAM2/inlierpcd.ply", # align_inlierpcd inlierpcd.ply office0_orb_mappts.txt
-         kf_orb_file = "/home/dlr/Project1/ORB_SLAM2/KeyFrameTrajectory.txt",  # alignKeyFrameTrajectory.txt KeyFrameTrajectory
-         align_kf_orb_file = "/home/dlr/Project1/ORB_SLAM2/alignKeyFrameTrajectory.txt",
-         alignorbpcdfile = "/home/dlr/Project1/ORB_SLAM2/align_inlierpcd.ply"):
+def load_traj(gtpath, save=None, firstI = False):
+    """
+    firstI: True 表示 要把首帧归一化， 默认false
+    """
+    with open(gtpath, "r") as f:
+        lines = f.readlines()
+    n_img = len(lines)
+    gtpose = []
+    c2ws = []
+    inv_pose = None
+    for i in range(n_img):
+        timestamp = float(i * 1.0/fps) # 根据帧率设置伪时间
+        line = lines[i]
+        c2w = np.array(list(map(float, line.split()))).reshape(4, 4)
+        #测试首帧归一化
+        if inv_pose is None: # 首帧位姿归I 但是好像只有tum做了归一化处理 why
+            inv_pose = np.linalg.inv(c2w) #T0w
+            c2w = np.eye(4)
+        else:
+            c2w = inv_pose@c2w # T0w Twi = T0i
+        # 转为tum
+        tq = SE3toQT(c2w)
+        ttq = np.concatenate([np.array([timestamp]), tq], 0) #  带上时间戳
+        gtpose += [ttq]
+        c2ws += [c2w]
     
+    gtposes = np.stack(gtpose, 0) # (N, 8)
+    c2ws = np.stack(c2ws, 0)
     
-    if '.ply' in orbpcdfile:
-        alignorbpcdfile = "/home/dlr/Project1/ORB_SLAM2/align_inlierpcd.ply"
-        inlier_cloud = o3d.io.read_point_cloud(orbpcdfile)
-        print('load ply from {}'.format(orbpcdfile))
-        print('readed: ', inlier_cloud)
-    elif '.txt' in orbpcdfile:
-        alignorbpcdfile = "/home/dlr/Project1/ORB_SLAM2/office0_orbalign_mappts.txt"
-        print('load raw point cloud txt from {}'.format(orbpcdfile))
-        pcdarr = np.loadtxt(orbpcdfile)
-        npt = pcdarr.shape[0]
-        print('pts size: ', pcdarr.shape)
-        inlier_cloud = o3d.geometry.PointCloud()
-        inlier_cloud.points = o3d.utility.Vector3dVector(pcdarr[:, :3])
-
-    
-    # 对该点云 再次三角化
-    dec_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(inlier_cloud, 0.5) # 此算法不需要normal 0.03 0.06 0.08 0.16 0.18
-    mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(
-    size=1.0, origin=[0, 0, 0]) #显示坐标系 1.0 20.0
-    
-    vis_lst = [inlier_cloud, dec_mesh, mesh_frame]
-    o3d.visualization.draw_geometries(vis_lst)
-    
-    # 三角剖分内的元素
-    triangles = np.asarray(dec_mesh.triangles) # 每个三角形 顶点组成 id 对应下面 的坐标值 (#,3) 0 6216
-    vertices =np.asarray(dec_mesh.vertices) # (#=6217, 3)
-    # vertices = np.asarray(inlier_cloud.points) # 现就看所有的点
-    n_vert = vertices.shape[0]
-    print('total vert to project: ', n_vert)
-    verts_h = np.concatenate([vertices, np.ones((n_vert, 1))], -1) # (M,4) 齐次表示
+    if save is not None:
+        np.savetxt(save, gtposes, fmt="%.1f %.6f %.6f %.6f %.6f %.6f %.6f %.6f")
+        if firstI:
+            print('first c2w is I, save tum-format gt: {}'.format(save))
+        else:
+            print('save tum-format gt: {}'.format(save))
         
+        
+    return gtposes, c2ws
+
+def associate(first_list, second_list, offset=0.0, max_difference=0.02):
+    """
+    Associate two dictionaries of (stamp,data). As the time stamps never match exactly, we aim
+    to find the closest match for every input tuple.
+
+    Input:
+    first_list -- first dictionary of (stamp,data) tuples
+    second_list -- second dictionary of (stamp,data) tuples
+    offset -- time offset between both dictionaries (e.g., to model the delay between the sensors)
+    max_difference -- search radius for candidate generation
+
+    Output:
+    matches -- list of matched tuples ((stamp1,data1),(stamp2,data2))
+
+    """
+    first_keys = list(first_list.keys())
+    second_keys = list(second_list.keys())
+    potential_matches = [(abs(a - (b + offset)), a, b)
+                         for a in first_keys
+                         for b in second_keys
+                         if abs(a - (b + offset)) < max_difference]
+    potential_matches.sort()
+    matches = []
+    for diff, a, b in potential_matches:
+        if a in first_keys and b in second_keys:
+            first_keys.remove(a)
+            second_keys.remove(b)
+            matches.append((a, b))
+
+    matches.sort()
+    return matches    
+
+#Check if a point is insied a rectangle
+def rect_contains(rect,point):
+    if point[0] <rect[0]:
+        return False
+    elif point[1]<rect[1]:
+        return  False
+    elif point[0]>rect[2]:
+        return False
+    elif point[1] >rect[3]:
+        return False
+    return True
+
+# Draw a point
+def draw_point(img,p,color):
+    cv2.circle(img,p,2,color)
+
+#Draw delaunay triangles
+def draw_delaunay(img,subdiv,delaunay_color):
+    trangleList = subdiv.getTriangleList().astype(np.int32) # (8630,6 ?)
+    size = img.shape
+    r = (0,0,size[1],size[0])
+    for t in  trangleList:
+        pt1 = (t[0],t[1]) # (u,v)
+        pt2 = (t[2],t[3])
+        pt3 = (t[4],t[5])
+        if (rect_contains(r,pt1) and rect_contains(r,pt2) and rect_contains(r,pt3)):
+            cv2.line(img,pt1,pt2,delaunay_color,1)
+            cv2.line(img,pt2,pt3,delaunay_color,1)
+            cv2.line(img,pt3,pt1,delaunay_color,1)
+
+
+def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
+    
+    mapptsfile = os.path.join(orbmapdir, 'mappts.txt')
+    kftrajfile = os.path.join(orbmapdir, 'KeyFrameTrajectory.txt')
+    gttrajfile = os.path.join(cfg['data']['input_folder'], 'traj.txt')
+    
+    # 载入 mapptsfile 以字典方式存吧  每行长度不一
+    dic_mappts = {}
+    with open(mapptsfile, 'r') as f:
+        lines = f.readlines()
+    n_pts = len(lines) # 总3d点数
+    
+    for i in range(n_pts):
+        line = lines[i]
+        raw = line.split(' ')
+        if len(raw) <= 4:
+            print('[ERROR] this 3d pt has no 2d obs!')
+            assert False
+        num_obs = int((len(raw)-4) / 2)
+        assert (len(raw)-4) % 2 == 0
+        dic_mappts[int(raw[0])] = []
+        xyz = np.array(raw[1:4], dtype=float) # (3)
+        dic_mappts[int(raw[0])].append(xyz)
+        if len(raw) > 4:
+            obsarr = np.array(list(map(int, raw[4:]))).reshape(num_obs, 2) # (n,2)
+            dic_mappts[int(raw[0])].append(obsarr)
+    # (mapptidx:[xyz, obsarr])
+            
+    estpose = np.loadtxt(kftrajfile) # 本身是kf pose
+    print('load pred pose from {}'.format(kftrajfile))
+    gtpose, _ = load_traj(gttrajfile, save=os.path.join(cfg['data']['input_folder'], 'tum_gt.txt'), firstI=False)
+    print('load gt traj from {}'.format(gttrajfile))
+    # 转变为 字典 key 为 时间戳
+    n_gt = gtpose.shape[0]
+    n_est = estpose.shape[0]
+    print('gt pose: ', gtpose.shape)
+    print('est pose: ', estpose.shape)
+    dic_gt = dict([(gtpose[i, 0], gtpose[i, 1:]) for i in range(n_gt)])
+    dic_est = dict([(float(format(estpose[i, 0], '.1f')), estpose[i, 1:]) for i in range(n_est)])
+    matches = associate(dic_gt, dic_est)
+    if len(matches) < 2:
+        raise ValueError(
+            "Couldn't find matching timestamp pairs between groundtruth and estimated trajectory! \
+            Did you choose the correct sequence?")
+    first_xyz = np.matrix(
+        [[float(value) for value in dic_gt[a][0:3]] for a, b in matches]).transpose()
+    second_xyz = np.matrix([[float(value) for value in dic_est[b][0:3]] for a, b in matches]).transpose()
+    
+    # 对齐 得到尺度变换
+    rot, trans, trans_error, s = align(first_xyz, second_xyz) # RT把前者 变为后者, s 把后者变前者
+    if True:
+        print("compared_pose_pairs %d pairs" % (len(trans_error)))
+
+        print("absolute_translational_error.rmse %f m" % np.sqrt(
+            np.dot(trans_error, trans_error) / len(trans_error)))
+        print("absolute_translational_error.mean %f m" %
+              np.mean(trans_error))
+        print("absolute_translational_error.median %f m" %
+              np.median(trans_error))
+        print("absolute_translational_error.std %f m" % np.std(trans_error))
+        print("absolute_translational_error.min %f m" % np.min(trans_error))
+        print("absolute_translational_error.max %f m" % np.max(trans_error))
+    scale = float(s) # float(1./s)
+    print('est map should x {}'.format(scale))
+    
     
     # 投影的话还是要有每帧位姿 再跑前面的orbslam 插值 不准 就先只用kf的吧
-    kf_orb_pose = np.loadtxt(kf_orb_file)
-    nkf = kf_orb_pose.shape[0]
-    print('load orb-mono pose(tum): {} \n size: {}, {}'.format(kf_orb_file, kf_orb_pose.shape[0], kf_orb_pose.shape[1]))
-    dic_est = dict([(int(float(format(kf_orb_pose[i, 0], '.1f'))*10), kf_orb_pose[i, 1:]) for i in range(nkf)]) # key 就是 frame id
+    kf_orb_pose = copy.deepcopy(estpose)
+    print('load orb-mono pose(tum): {} \n size: {}, {}'.format(kftrajfile, kf_orb_pose.shape[0], kf_orb_pose.shape[1]))
+    dic_est = dict([(int(float(format(kf_orb_pose[i, 0], '.1f'))*10), kf_orb_pose[i, 1:]) for i in range(n_est)]) # key 就是 frame id
     
-    scale = cfg['scale']
     # 逐帧看 image
     frame_reader = get_dataset(cfg, args, scale)
-    frame_loader = DataLoader(
-            frame_reader, batch_size=1, shuffle=False, num_workers=1)
-    
+    # frame_loader = DataLoader(
+    #         frame_reader, batch_size=1, shuffle=False, num_workers=1)
+    n_img = frame_reader.__len__()
     K, H, W = update_cam(cfg) # 得到内参矩阵
     
     idx_map = [] # 记录每张图上 有效triangulate 以及 所有verts 和之前原3d 数据的idx 的映射关系 list 里是多个字典 每个字典是个List 里面两个字典
     # 分别表示 有效triangulate 和 verts
     
-    for idx, gt_color, _, _ in frame_loader:
-        idx = idx.item()
+    # for idx, gt_color, _, _ in frame_loader:
+    for idx in range (n_img):
+        # idx = idx.item()
         if (not idx in dic_est.keys()):
             continue # 非kf 暂时不投影
-        if idx > 0:
-            break
-        print('process frame {}'.format(idx))
-        map_i = {'tri':{}, 'vet':{}}
-        # 3d triangle 投影到2d当前视角后 的数组
-        tri2d = [] # 当前图像里 
-        vert2d = []
-        idx_vt3d = {} # 用字典记录已经涉及的 点的 原(3d index:2d index) 
-        count = 0 # 累计当前view下已有的2d vert 
-        
-        gt_color_np = gt_color.cpu().numpy()[0] # (1, h,w,3)
+        # if idx > 0:
+        #     break
+        rgbpath = frame_reader.color_paths[idx]
+        color_data = cv2.imread(rgbpath) # h,w,3 unit8
+        print('process frame {}'.format(rgbpath))
+        color_data = cv2.cvtColor(color_data, cv2.COLOR_BGR2RGB) 
+        #Rectangle to be used with Subdiv2D
+        size = color_data.shape # h, w, 3
+        rect = (0,0,size[1],size[0])
+        # 读入 ####.txt
+        kffile = os.path.join(orbmapdir, "%04d.txt" % idx)
+        # kptid u v 3dpid(-1表示没有对应) x y z
+        kfarr = np.loadtxt(kffile, skiprows=1) # (N,7) , fmt='%d %d %d %d %.6f %.6f %.6f'
+        # 转为字典 no
+        kpts = kfarr[:, 1:3] # .astype(np.int32) # (n,2)
+        # 还要就取出首行 Tcw
+        tum_i = np.loadtxt(kffile, max_rows=1) # , fmt='%.1f %.6f %.6f %.6f %.6f %.6f %.6f %.6f'
+        assert int(tum_i[0]*10) == idx
+        kf_tq = tum_i[1:]
+        kf_w2c = np.array(TQtoSE3(kf_tq))
         # 拿出orb 的 pose
         orb_tq = dic_est[idx]
         orb_c2w = np.array(TQtoSE3(orb_tq))
         orb_w2c = np.linalg.inv(orb_c2w)
-        # 把 3d 点 投影到当前坐标系 并拿出当前图上的点 
-        xyz_cam_i = (verts_h @ orb_w2c.T)[:, :3] # xyz in the ith cam coordinate 批量转换 (M,4)
-        # xyz_cam_i_in = xyz_cam_i[xyz_cam_i[:, 2]>0] # filter out points that lie behind the cam ,this id 这里的序号就不是之前的了
-        flag_i = xyz_cam_i[:, 2]>0 # 表示 所有定点中 投在当前view下的 bool array (6217,)
+        debug = np.matmul(kf_w2c, orb_c2w)
+        print('test kf w2c: \n', debug)
+        # 对 kpts 做2d上的三角剖分
+        #Create an instance of Subdiv2d
+        subdiv = cv2.Subdiv2D(rect)
+        subdiv.insert(kpts)
+        #Draw delaunary triangles
+        draw_delaunay(color_data,subdiv,(255,255,255))
+
+        #Draw points
+        for p in kpts.astype(np.int32):
+            draw_point(color_data,p,(0,0,255))
+        win_delaunary = "%04d-delaunay triangulation" % idx
+        #Show results
+        # cv2.imshow(win_delaunary,color_data)
+        # cv2.waitKey(0)
+        # save img
+        outvisfile = "dt%04d.jpg" % idx
+        cv2.imwrite(outvisfile, color_data)
         
-        
-        
-        # 再计算图像上像素坐标
-        z_cam_i = xyz_cam_i[:,2].reshape(-1,1) # (6217,) -> (6217, 1)
-        z3_cam_i = np.hstack((z_cam_i, z_cam_i, z_cam_i))
-        xyz_cam_i_h = np.divide(xyz_cam_i, z3_cam_i) # (x/z, y/z, 1) # (n,3)
-        # 相机投影
-        uv_i = (xyz_cam_i_h @ K.T).astype(np.int32)[:, :2] # 这才是像素坐标 (n,2)
-        # uv_i = xyz_cam_i_h[:, :2] # 像素坐标 艹艹艹艹 弱智Bug! 
-        # 可视化
-        fig, axs = plt.subplots()
-        fig.tight_layout()
-        axs.imshow(gt_color_np, cmap="plasma")
-        axs.set_title('Input RGB projected triangles')
-        axs.set_xticks([])
-        axs.set_yticks([])
-        
-        # 把3d点的投影画出来
-        # axs.scatter(uv_i[:, 0], uv_i[:, 1], c='red', s=2)
-        for k in range(uv_i.shape[0]):
-            pix = uv_i[k]
-            if not flag_i[k]:
-                continue
-            if pix[0] >= 0 and pix[0] < W and pix[1] >= 0 and pix[1] < H:
-                axs.scatter(pix[0], pix[1], c='red', s=2)
-        # 根据 保存的三角形 用edge 连起来 
-        edge_x = []
-        edge_y = []
-        for t in range(triangles.shape[0]):
-            vts = triangles[t] # 3个 顶点 的 index
-            bin0 = flag_i[vts[0]]
-            bin1 = flag_i[vts[1]]
-            bin2 = flag_i[vts[2]]
-            vt_0 = uv_i[vts[0]] # (2)
-            vt_1 = uv_i[vts[1]]
-            vt_2 = uv_i[vts[2]]
-            bat0 = vt_0[0] >= 0 and vt_0[0] < W and vt_0[1] >= 0 and vt_0[1] < H
-            bat1 = vt_1[0] >= 0 and vt_1[0] < W and vt_1[1] >= 0 and vt_1[1] < H
-            bat2 = vt_2[0] >= 0 and vt_2[0] < W and vt_2[1] >= 0 and vt_2[1] < H
-            if (bin0 and bin1 and bin2 and bat0 and bat1 and bat2): # 该三角的 3个顶点都在该图像内
-                # 拿出这3个顶点的 像素坐标
-                edge_x += [[vt_0[0], vt_1[0]], [vt_1[0], vt_2[0]], [vt_0[0], vt_2[0]]]
-                edge_y += [[vt_0[1], vt_1[1]], [vt_1[1], vt_2[1]], [vt_0[1], vt_2[1]]]
-                my_tri = Polygon([(vt_0[0],vt_0[1]), (vt_1[0],vt_1[1]), (vt_2[0],vt_2[1])])
-                a = axs.add_patch( my_tri )
-                a.set_fill(False)
-                # axs.scatter(vt_0[0], vt_0[1], c='red', s=2)
-                # axs.scatter(vt_1[0], vt_1[1], c='red', s=2)
-                # axs.scatter(vt_2[0], vt_2[1], c='red', s=2)
-                
-    #             # 保存2d 到对应
-    #             if (not vts[0] in idx_vt3d.keys()):
-    #                 idx_vt3d[vts[0]] = count
-    #                 vert2d += [vt_0]
-    #                 map_i['vet'][count] = vts[0]
-    #                 count += 1
-    #             if (not vts[1] in idx_vt3d.keys()):
-    #                 idx_vt3d[vts[1]] = count
-    #                 map_i['vet'][count] = vts[1]
-    #                 vert2d += [vt_1]
-    #                 count += 1 
-    #             if (not vts[2] in idx_vt3d.keys()):
-    #                 idx_vt3d[vts[2]] = count
-    #                 map_i['vet'][count] = vts[2]
-    #                 vert2d += [vt_2]
-    #                 count += 1
-                
-    #             # 保存三角形组成
-    #             tri2d += [np.array([idx_vt3d[vts[0]], idx_vt3d[vts[1]], idx_vt3d[vts[2]]])]
-        
-    #     # axs.plot(edge_x, edge_y) # 画所有的边  
-        
-        plt.savefig(os.path.join('triangulation', '{:04d}big.png'.format(idx)))
-    #     # show 
-        plt.show()
-    #     plt.cla()
-    
-    #     # 估计粗糙的深度图 to do
+        # 估计粗糙的深度图 to do
         
         
         
@@ -240,8 +395,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(
             description='Arguments for running the triangulation projection.'
         )
-    parser.add_argument('--orbpcdfile', type=str, help='Path to filtered ply file', default="/home/dlr/Project1/ORB_SLAM2/office0_orb_mappts.txt") # /home/dlr/Project1/ORB_SLAM2/office0_orb_mappts.txt inlierpcd.ply
-    parser.add_argument('--predpose', type=str, help='orb 估计的位姿路径',default="/home/dlr/Project1/ORB_SLAM2/KeyFrameTrajectory.txt")
+    parser.add_argument('--orbmapdir', type=str, help='dir Path to saved map from orb', default="/home/dlr/Project1/ORB_SLAM2_Enhanced/result")
     parser.add_argument('config', type=str, help='Path to config file.')
     parser.add_argument('--input_folder', type=str,
                         help='input folder, this have higher priority, can overwrite the one in config file')
@@ -253,8 +407,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
     cfg = config.load_config(
         args.config, 'configs/nice_slam.yaml' if args.nice else 'configs/imap.yaml')
-    # 读取参数
-    orbpcdfile = args.orbpcdfile
-    predpose = args.predpose
     
-    main(cfg, args, orbpcdfile=orbpcdfile, kf_orb_file=predpose)
+    # 读取参数
+    orbmapdir = args.orbmapdir
+    
+    main(cfg, args, orbmapdir=orbmapdir)
