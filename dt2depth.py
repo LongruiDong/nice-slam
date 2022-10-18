@@ -81,9 +81,6 @@ def main(cfg, args, orbpcdfile = "/home/dlr/Project1/ORB_SLAM2/inlierpcd.ply", #
         inlier_cloud = o3d.io.read_point_cloud(orbpcdfile)
         print('load ply from {}'.format(orbpcdfile))
         print('readed: ', inlier_cloud)
-        # align_inlier_cloud = o3d.io.read_point_cloud(alignorbpcdfile)
-        # print('load align ply from {}'.format(alignorbpcdfile))
-        # print('readed align : ', align_inlier_cloud)
     elif '.txt' in orbpcdfile:
         alignorbpcdfile = "/home/dlr/Project1/ORB_SLAM2/office0_orbalign_mappts.txt"
         print('load raw point cloud txt from {}'.format(orbpcdfile))
@@ -92,23 +89,15 @@ def main(cfg, args, orbpcdfile = "/home/dlr/Project1/ORB_SLAM2/inlierpcd.ply", #
         print('pts size: ', pcdarr.shape)
         inlier_cloud = o3d.geometry.PointCloud()
         inlier_cloud.points = o3d.utility.Vector3dVector(pcdarr[:, :3])
-        
-        # print('load align point cloud txt from {}'.format(alignorbpcdfile))
-        # align_pcdarr = np.loadtxt(alignorbpcdfile)
-        # align_npt = align_pcdarr.shape[0]
-        # print('align pts size: ', align_pcdarr.shape)
-        # align_inlier_cloud = o3d.geometry.PointCloud()
-        # align_inlier_cloud.points = o3d.utility.Vector3dVector(align_pcdarr[:, :3])
-        
-        
+
     
     # 对该点云 再次三角化
-    dec_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(inlier_cloud, 0.19) # 此算法不需要normal 0.03 0.06 0.08 0.16 0.18
+    dec_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(inlier_cloud, 0.5) # 此算法不需要normal 0.03 0.06 0.08 0.16 0.18
     mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(
     size=1.0, origin=[0, 0, 0]) #显示坐标系 1.0 20.0
     
     vis_lst = [inlier_cloud, dec_mesh, mesh_frame]
-    # o3d.visualization.draw_geometries(vis_lst)
+    o3d.visualization.draw_geometries(vis_lst)
     
     # 三角剖分内的元素
     triangles = np.asarray(dec_mesh.triangles) # 每个三角形 顶点组成 id 对应下面 的坐标值 (#,3) 0 6216
@@ -117,19 +106,13 @@ def main(cfg, args, orbpcdfile = "/home/dlr/Project1/ORB_SLAM2/inlierpcd.ply", #
     n_vert = vertices.shape[0]
     print('total vert to project: ', n_vert)
     verts_h = np.concatenate([vertices, np.ones((n_vert, 1))], -1) # (M,4) 齐次表示
-    
-    
+        
     
     # 投影的话还是要有每帧位姿 再跑前面的orbslam 插值 不准 就先只用kf的吧
     kf_orb_pose = np.loadtxt(kf_orb_file)
     nkf = kf_orb_pose.shape[0]
     print('load orb-mono pose(tum): {} \n size: {}, {}'.format(kf_orb_file, kf_orb_pose.shape[0], kf_orb_pose.shape[1]))
     dic_est = dict([(int(float(format(kf_orb_pose[i, 0], '.1f'))*10), kf_orb_pose[i, 1:]) for i in range(nkf)]) # key 就是 frame id
-    
-    # align_kf_orb_pose = np.loadtxt(align_kf_orb_file)
-    # nkf = align_kf_orb_pose.shape[0]
-    # print('load align orb-mono pose(tum): {} \n size: {}, {}'.format(align_kf_orb_file, align_kf_orb_pose.shape[0], align_kf_orb_pose.shape[1]))
-    # align_dic_est = dict([(int(float(format(align_kf_orb_pose[i, 0], '.1f'))*10), align_kf_orb_pose[i, 1:]) for i in range(nkf)]) # key 就是 frame id
     
     scale = cfg['scale']
     # 逐帧看 image
@@ -139,14 +122,22 @@ def main(cfg, args, orbpcdfile = "/home/dlr/Project1/ORB_SLAM2/inlierpcd.ply", #
     
     K, H, W = update_cam(cfg) # 得到内参矩阵
     
+    idx_map = [] # 记录每张图上 有效triangulate 以及 所有verts 和之前原3d 数据的idx 的映射关系 list 里是多个字典 每个字典是个List 里面两个字典
+    # 分别表示 有效triangulate 和 verts
     
-    for idx, gt_color, gt_depth, gt_c2w in frame_loader:
+    for idx, gt_color, _, _ in frame_loader:
         idx = idx.item()
         if (not idx in dic_est.keys()):
             continue # 非kf 暂时不投影
-        # if idx > 0:
-        #     break
+        if idx > 0:
+            break
         print('process frame {}'.format(idx))
+        map_i = {'tri':{}, 'vet':{}}
+        # 3d triangle 投影到2d当前视角后 的数组
+        tri2d = [] # 当前图像里 
+        vert2d = []
+        idx_vt3d = {} # 用字典记录已经涉及的 点的 原(3d index:2d index) 
+        count = 0 # 累计当前view下已有的2d vert 
         
         gt_color_np = gt_color.cpu().numpy()[0] # (1, h,w,3)
         # 拿出orb 的 pose
@@ -155,16 +146,9 @@ def main(cfg, args, orbpcdfile = "/home/dlr/Project1/ORB_SLAM2/inlierpcd.ply", #
         orb_w2c = np.linalg.inv(orb_c2w)
         # 把 3d 点 投影到当前坐标系 并拿出当前图上的点 
         xyz_cam_i = (verts_h @ orb_w2c.T)[:, :3] # xyz in the ith cam coordinate 批量转换 (M,4)
-        xyz_cam_i_in = xyz_cam_i[xyz_cam_i[:, 2]>0] # filter out points that lie behind the cam ,this id 这里的序号就不是之前的了
+        # xyz_cam_i_in = xyz_cam_i[xyz_cam_i[:, 2]>0] # filter out points that lie behind the cam ,this id 这里的序号就不是之前的了
         flag_i = xyz_cam_i[:, 2]>0 # 表示 所有定点中 投在当前view下的 bool array (6217,)
         
-        # # 拿出orb 的 pose 上面只是用raw pose 和点 来得到 是否在相机前的mask
-        # align_orb_tq = align_dic_est[idx]
-        # align_orb_c2w = np.array(TQtoSE3(align_orb_tq))
-        # align_orb_w2c = np.linalg.inv(align_orb_c2w)
-        # # 把 3d 点 投影到当前坐标系 并拿出当前图上的点 
-        # xyz_cam_i = (verts_h @ align_orb_w2c.T)[:, :3] # xyz in the ith cam coordinate 批量转换 (M,4)
-        # xyz_cam_i_in = xyz_cam_i[xyz_cam_i[:, 2]>0] # filter out points that lie behind the cam ,this id 这里的序号就不是之前的了
         
         
         # 再计算图像上像素坐标
@@ -181,6 +165,7 @@ def main(cfg, args, orbpcdfile = "/home/dlr/Project1/ORB_SLAM2/inlierpcd.ply", #
         axs.set_title('Input RGB projected triangles')
         axs.set_xticks([])
         axs.set_yticks([])
+        
         # 把3d点的投影画出来
         # axs.scatter(uv_i[:, 0], uv_i[:, 1], c='red', s=2)
         for k in range(uv_i.shape[0]):
@@ -213,15 +198,35 @@ def main(cfg, args, orbpcdfile = "/home/dlr/Project1/ORB_SLAM2/inlierpcd.ply", #
                 # axs.scatter(vt_0[0], vt_0[1], c='red', s=2)
                 # axs.scatter(vt_1[0], vt_1[1], c='red', s=2)
                 # axs.scatter(vt_2[0], vt_2[1], c='red', s=2)
+                
+    #             # 保存2d 到对应
+    #             if (not vts[0] in idx_vt3d.keys()):
+    #                 idx_vt3d[vts[0]] = count
+    #                 vert2d += [vt_0]
+    #                 map_i['vet'][count] = vts[0]
+    #                 count += 1
+    #             if (not vts[1] in idx_vt3d.keys()):
+    #                 idx_vt3d[vts[1]] = count
+    #                 map_i['vet'][count] = vts[1]
+    #                 vert2d += [vt_1]
+    #                 count += 1 
+    #             if (not vts[2] in idx_vt3d.keys()):
+    #                 idx_vt3d[vts[2]] = count
+    #                 map_i['vet'][count] = vts[2]
+    #                 vert2d += [vt_2]
+    #                 count += 1
+                
+    #             # 保存三角形组成
+    #             tri2d += [np.array([idx_vt3d[vts[0]], idx_vt3d[vts[1]], idx_vt3d[vts[2]]])]
         
-        # axs.plot(edge_x, edge_y) # 画所有的边  
+    #     # axs.plot(edge_x, edge_y) # 画所有的边  
         
-        plt.savefig(os.path.join('triangulation', '{:04d}.png'.format(idx)))
-        # show 
-        # plt.show()
-        plt.cla()
+        plt.savefig(os.path.join('triangulation', '{:04d}big.png'.format(idx)))
+    #     # show 
+        plt.show()
+    #     plt.cla()
     
-        # 估计粗糙的深度图 to do
+    #     # 估计粗糙的深度图 to do
         
         
         
