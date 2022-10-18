@@ -32,6 +32,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon
 
 import cv2
+from numba import jit
 
 fps = 10 # 生成伪时间 但要根据设置的帧率
 
@@ -250,6 +251,36 @@ def draw_delaunay(img,subdiv,delaunay_color):
             cv2.line(img,pt2,pt3,delaunay_color,1)
             cv2.line(img,pt3,pt1,delaunay_color,1)
 
+def display_inlier_outlier(cloud, ind, vis=True):
+    inlier_cloud = cloud.select_by_index(ind)
+    outlier_cloud = cloud.select_by_index(ind, invert=True)
+    # 统计内外点数目
+    nin = np.asarray(inlier_cloud.points).shape[0]
+    nout = np.asarray(outlier_cloud.points).shape[0]
+    print('inlier: {}, outlier: {}'.format(nin, nout))
+    print("Showing outliers (red) and inliers (gray): ")
+    outlier_cloud.paint_uniform_color([1, 0, 0])
+    inlier_cloud.paint_uniform_color([0.8, 0.8, 0.8])
+    if vis:
+        o3d.visualization.draw_geometries([inlier_cloud, outlier_cloud])
+                                        #   ,
+                                        #   zoom=0.3412,
+                                        #   front=[0.4257, -0.2125, -0.8795],
+                                        #   lookat=[2.6172, 2.0475, 1.532],
+                                        #   up=[-0.0694, -0.9768, 0.2024])
+    return inlier_cloud
+
+@jit(nopython=True) 
+def filterkpt(kfarr ,inlier_list): # 加速下
+    data = kfarr # copy.deepcopy(kfarr)
+    for k in range(kfarr.shape[0]):
+        mpid = data[k, 3]
+        if mpid > 0: # 作为第二次过滤
+            if not(mpid in inlier_list): # pcd filter 认为是 离群点 也认为不做三角剖分
+                data[k, 3] = -1
+    
+    return data
+
 
 def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
     
@@ -262,7 +293,7 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
     with open(mapptsfile, 'r') as f:
         lines = f.readlines()
     n_pts = len(lines) # 总3d点数
-    
+    xyzs = []
     for i in range(n_pts):
         line = lines[i]
         raw = line.split(' ')
@@ -274,11 +305,26 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
         dic_mappts[int(raw[0])] = []
         xyz = np.array(raw[1:4], dtype=float) # (3)
         dic_mappts[int(raw[0])].append(xyz)
+        xyz.reshape(1, -1)
+        xyzs += [xyz]
         if len(raw) > 4:
             obsarr = np.array(list(map(int, raw[4:]))).reshape(num_obs, 2) # (n,2)
             dic_mappts[int(raw[0])].append(obsarr)
     # (mapptidx:[xyz, obsarr])
-            
+    xyzs = np.stack(xyzs, 0) # (n,3)
+    
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(xyzs[:, :3]) # 相机位置的点云
+    pcd.normals = o3d.utility.Vector3dVector(xyzs[:, :3] / np.linalg.norm(xyzs[:, :3], axis=-1, keepdims=True)) # 每个位置点到原点的距离  每个位置单位向量        
+    # 对点云滤波 open3d的函数
+    # http://www.open3d.org/docs/release/tutorial/geometry/pointcloud_outlier_removal.html
+    print("Statistical oulier removal")
+    cl, ind = pcd.remove_statistical_outlier(nb_neighbors=30, std_ratio=2.0) # 20 2
+    inlier_cloud = display_inlier_outlier(pcd, ind, vis=True)
+    mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(
+    size=1.0, origin=[0, 0, 0]) #显示坐标系 1.0 20.0
+    vis_lst = [inlier_cloud, mesh_frame]
+    o3d.visualization.draw_geometries(vis_lst)
     estpose = np.loadtxt(kftrajfile) # 本身是kf pose
     print('load pred pose from {}'.format(kftrajfile))
     gtpose, _ = load_traj(gttrajfile, save=os.path.join(cfg['data']['input_folder'], 'tum_gt.txt'), firstI=False)
@@ -342,7 +388,7 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
         rgbpath = frame_reader.color_paths[idx]
         color_data = cv2.imread(rgbpath) # h,w,3 unit8
         print('process frame {}'.format(rgbpath))
-        color_data = cv2.cvtColor(color_data, cv2.COLOR_BGR2RGB) 
+        # color_data = cv2.cvtColor(color_data, cv2.COLOR_BGR2RGB) 
         #Rectangle to be used with Subdiv2D
         size = color_data.shape # h, w, 3
         rect = (0,0,size[1],size[0])
@@ -352,6 +398,13 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
         kfarr = np.loadtxt(kffile, skiprows=1) # (N,7) , fmt='%d %d %d %d %.6f %.6f %.6f'
         # 转为字典 no
         kpts = kfarr[:, 1:3] # .astype(np.int32) # (n,2)
+        # for k in range(kfarr.shape[0]):
+        #     mpid = kfarr[k, 3]
+        #     if mpid > 0: # 作为第二次过滤
+        #         if not(mpid in ind): # pcd filter 认为是 离群点 也认为不做三角剖分
+        #             kfarr[k, 3] = -1 
+        kfarr1 = filterkpt(copy.deepcopy(kfarr), ind)
+        kpts_wdepth = kpts[kfarr1[:, 3]>0] # 那些有深度的点才用 看作第一次过滤
         # 还要就取出首行 Tcw
         tum_i = np.loadtxt(kffile, max_rows=1) # , fmt='%.1f %.6f %.6f %.6f %.6f %.6f %.6f %.6f'
         assert int(tum_i[0]*10) == idx
@@ -361,24 +414,24 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
         orb_tq = dic_est[idx]
         orb_c2w = np.array(TQtoSE3(orb_tq))
         orb_w2c = np.linalg.inv(orb_c2w)
-        debug = np.matmul(kf_w2c, orb_c2w)
-        print('test kf w2c: \n', debug)
+        # debug = np.matmul(kf_w2c, orb_c2w)
+        # print('test kf w2c: \n', debug)
         # 对 kpts 做2d上的三角剖分
         #Create an instance of Subdiv2d
         subdiv = cv2.Subdiv2D(rect)
-        subdiv.insert(kpts)
+        subdiv.insert(kpts_wdepth)
         #Draw delaunary triangles
         draw_delaunay(color_data,subdiv,(255,255,255))
 
         #Draw points
-        for p in kpts.astype(np.int32):
+        for p in kpts_wdepth.astype(np.int32):
             draw_point(color_data,p,(0,0,255))
         win_delaunary = "%04d-delaunay triangulation" % idx
         #Show results
         # cv2.imshow(win_delaunary,color_data)
         # cv2.waitKey(0)
         # save img
-        outvisfile = "dt%04d.jpg" % idx
+        outvisfile = os.path.join('triangulation', "dt%04d.jpg" % idx)
         cv2.imwrite(outvisfile, color_data)
         
         # 估计粗糙的深度图 to do
