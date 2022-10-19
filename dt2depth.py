@@ -235,7 +235,7 @@ def rect_contains(rect,point):
 
 # Draw a point
 def draw_point(img,p,color):
-    cv2.circle(img,p,2,color)
+    cv2.circle(img,p,2,color) # 2 5
 
 #Draw delaunay triangles
 def draw_delaunay(img,subdiv,delaunay_color):
@@ -320,11 +320,11 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
     # http://www.open3d.org/docs/release/tutorial/geometry/pointcloud_outlier_removal.html
     print("Statistical oulier removal")
     cl, ind = pcd.remove_statistical_outlier(nb_neighbors=30, std_ratio=2.0) # 20 2
-    inlier_cloud = display_inlier_outlier(pcd, ind, vis=True)
+    inlier_cloud = display_inlier_outlier(pcd, ind, vis=False) # , vis=True
     mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(
     size=1.0, origin=[0, 0, 0]) #显示坐标系 1.0 20.0
     vis_lst = [inlier_cloud, mesh_frame]
-    o3d.visualization.draw_geometries(vis_lst)
+    # o3d.visualization.draw_geometries(vis_lst)
     estpose = np.loadtxt(kftrajfile) # 本身是kf pose
     print('load pred pose from {}'.format(kftrajfile))
     gtpose, _ = load_traj(gttrajfile, save=os.path.join(cfg['data']['input_folder'], 'tum_gt.txt'), firstI=False)
@@ -336,31 +336,31 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
     print('est pose: ', estpose.shape)
     dic_gt = dict([(gtpose[i, 0], gtpose[i, 1:]) for i in range(n_gt)])
     dic_est = dict([(float(format(estpose[i, 0], '.1f')), estpose[i, 1:]) for i in range(n_est)])
-    matches = associate(dic_gt, dic_est)
-    if len(matches) < 2:
-        raise ValueError(
-            "Couldn't find matching timestamp pairs between groundtruth and estimated trajectory! \
-            Did you choose the correct sequence?")
-    first_xyz = np.matrix(
-        [[float(value) for value in dic_gt[a][0:3]] for a, b in matches]).transpose()
-    second_xyz = np.matrix([[float(value) for value in dic_est[b][0:3]] for a, b in matches]).transpose()
+    # matches = associate(dic_gt, dic_est)
+    # if len(matches) < 2:
+    #     raise ValueError(
+    #         "Couldn't find matching timestamp pairs between groundtruth and estimated trajectory! \
+    #         Did you choose the correct sequence?")
+    # first_xyz = np.matrix(
+    #     [[float(value) for value in dic_gt[a][0:3]] for a, b in matches]).transpose()
+    # second_xyz = np.matrix([[float(value) for value in dic_est[b][0:3]] for a, b in matches]).transpose()
     
-    # 对齐 得到尺度变换
-    rot, trans, trans_error, s = align(first_xyz, second_xyz) # RT把前者 变为后者, s 把后者变前者
-    if True:
-        print("compared_pose_pairs %d pairs" % (len(trans_error)))
+    # # 对齐 得到尺度变换
+    # rot, trans, trans_error, s = align(first_xyz, second_xyz) # RT把前者 变为后者, s 把后者变前者
+    # if True:
+    #     print("compared_pose_pairs %d pairs" % (len(trans_error)))
 
-        print("absolute_translational_error.rmse %f m" % np.sqrt(
-            np.dot(trans_error, trans_error) / len(trans_error)))
-        print("absolute_translational_error.mean %f m" %
-              np.mean(trans_error))
-        print("absolute_translational_error.median %f m" %
-              np.median(trans_error))
-        print("absolute_translational_error.std %f m" % np.std(trans_error))
-        print("absolute_translational_error.min %f m" % np.min(trans_error))
-        print("absolute_translational_error.max %f m" % np.max(trans_error))
-    scale = float(s) # float(1./s)
-    print('est map should x {}'.format(scale))
+    #     print("absolute_translational_error.rmse %f m" % np.sqrt(
+    #         np.dot(trans_error, trans_error) / len(trans_error)))
+    #     print("absolute_translational_error.mean %f m" %
+    #           np.mean(trans_error))
+    #     print("absolute_translational_error.median %f m" %
+    #           np.median(trans_error))
+    #     print("absolute_translational_error.std %f m" % np.std(trans_error))
+    #     print("absolute_translational_error.min %f m" % np.min(trans_error))
+    #     print("absolute_translational_error.max %f m" % np.max(trans_error))
+    # scale = float(s) # float(1./s)
+    # print('est map should x {}'.format(scale))
     
     
     # 投影的话还是要有每帧位姿 再跑前面的orbslam 插值 不准 就先只用kf的吧
@@ -369,7 +369,8 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
     dic_est = dict([(int(float(format(kf_orb_pose[i, 0], '.1f'))*10), kf_orb_pose[i, 1:]) for i in range(n_est)]) # key 就是 frame id
     
     # 逐帧看 image
-    frame_reader = get_dataset(cfg, args, scale)
+    
+    frame_reader = get_dataset(cfg, args, 1)
     # frame_loader = DataLoader(
     #         frame_reader, batch_size=1, shuffle=False, num_workers=1)
     n_img = frame_reader.__len__()
@@ -383,8 +384,8 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
         # idx = idx.item()
         if (not idx in dic_est.keys()):
             continue # 非kf 暂时不投影
-        # if idx > 0:
-        #     break
+        if idx != 813: # 813 > 0
+            continue # break
         rgbpath = frame_reader.color_paths[idx]
         color_data = cv2.imread(rgbpath) # h,w,3 unit8
         print('process frame {}'.format(rgbpath))
@@ -411,28 +412,41 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
         kf_tq = tum_i[1:]
         kf_w2c = np.array(TQtoSE3(kf_tq))
         # 拿出orb 的 pose
-        orb_tq = dic_est[idx]
-        orb_c2w = np.array(TQtoSE3(orb_tq))
-        orb_w2c = np.linalg.inv(orb_c2w)
+        # orb_tq = dic_est[idx]
+        # orb_c2w = np.array(TQtoSE3(orb_tq))
+        # orb_w2c = np.linalg.inv(orb_c2w)
         # debug = np.matmul(kf_w2c, orb_c2w)
         # print('test kf w2c: \n', debug)
         # 对 kpts 做2d上的三角剖分
         #Create an instance of Subdiv2d
         subdiv = cv2.Subdiv2D(rect)
         subdiv.insert(kpts_wdepth)
+        # 临时插入 跃变的点
+        # subdiv.insert((957, 365))
+        subdiv.insert((959, 367))
+        # subdiv.insert((959, 370))
+        
+        # subdiv.insert((978, 330))
+        subdiv.insert((980, 333))
+        # subdiv.insert((982, 334))
         #Draw delaunary triangles
         draw_delaunay(color_data,subdiv,(255,255,255))
 
         #Draw points
+        draw_point(color_data,(959, 367),(49,125,237))
+        draw_point(color_data,(980, 333),(49,125,237))
+        cv2.line(color_data,(959, 367),(980, 333),(0,255,0),1)
+        cv2.line(color_data,(973,412),(980, 333),(0,255,0),1)
+        
         for p in kpts_wdepth.astype(np.int32):
             draw_point(color_data,p,(0,0,255))
         win_delaunary = "%04d-delaunay triangulation" % idx
         #Show results
-        # cv2.imshow(win_delaunary,color_data)
-        # cv2.waitKey(0)
-        # save img
+        cv2.imshow(win_delaunary,color_data)
+        cv2.waitKey(0)
+        # save img dt kpt(只画 kpt)
         outvisfile = os.path.join('triangulation', "dt%04d.jpg" % idx)
-        cv2.imwrite(outvisfile, color_data)
+        # cv2.imwrite(outvisfile, color_data)
         
         # 估计粗糙的深度图 to do
         
