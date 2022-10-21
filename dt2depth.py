@@ -14,7 +14,7 @@ subdiv https://zhuanlan.zhihu.com/p/340510482
 """
 
 import argparse, os, copy
-import random
+import random, math
 # -*- coding:utf-8 -*-
 import numpy as np
 import torch
@@ -238,8 +238,8 @@ def draw_point(img,p,color):
     cv2.circle(img,p,2,color) # 2 5
 
 #Draw delaunay triangles
-def draw_delaunay(img,subdiv,delaunay_color):
-    trangleList = subdiv.getTriangleList().astype(np.int32) # (8630,6 ?)
+def draw_delaunay(img,trangleList,delaunay_color):
+    # trangleList = np.around(subdiv.getTriangleList()).astype(np.int32) # .astype(np.int32) # (8630,6 ?) 应该四舍五入而不是 Int
     size = img.shape
     r = (0,0,size[1],size[0])
     for t in  trangleList:
@@ -270,17 +270,151 @@ def display_inlier_outlier(cloud, ind, vis=True):
                                         #   up=[-0.0694, -0.9768, 0.2024])
     return inlier_cloud
 
-@jit(nopython=True) 
-def filterkpt(kfarr ,inlier_list): # 加速下
+@jit(nopython=True) # (nopython=True) 
+def filterkpt(kfarr, inlier_list): # 加速下
     data = kfarr # copy.deepcopy(kfarr)
     for k in range(kfarr.shape[0]):
         mpid = data[k, 3]
-        if mpid > 0: # 作为第二次过滤
+        if mpid >= 0: # 作为第二次过滤 ! 0也是
             if not(mpid in inlier_list): # pcd filter 认为是 离群点 也认为不做三角剖分
                 data[k, 3] = -1
     
     return data
 
+@jit(nopython=True) # (nopython=True) 
+def getkptidx(qt, kfarr): # 加速下
+    '''
+    在kfarray kptid u v 3dpid(-1表示没有对应) x y z
+    中 找到 qt 像素点的位置
+    '''
+    data = kfarr # [:, 1:3] #np.around(kfarr[:, 1:3]).astype(np.int32)
+    locidx = -1 
+    for k in range(kfarr.shape[0]):
+        flag = data[k, 3]
+        if flag < 0: # 无效点
+            continue
+        kpt = data[k, 1:3]
+        if (int(round(kpt[0])) == qt[0]) and (int(round(kpt[1])) == qt[1]) : # 是此点
+            locidx = k
+            return locidx
+            
+    return locidx # 没找到此点 不该发生
+
+@jit(nopython=True) # (nopython=True)
+def locate_triangle(qt, trangleList):
+    """自己写一个粗暴遍历 当前所有三角形 判断当前点的位置
+       有多种情况 [0,]表示就在内部
+       -1---不在任何一个三角内部
+       -2---就是某个顶点
+       -3---就在某条edge上 # 这个情况比较棘手
+    Args:
+        pt (np.array): 查询的像素坐标 (u, v)
+        trangleList (np.array): cv2.subdiv.getTriangleList().astype(np.int32) 返回的结果 (n, 6)
+
+    Returns:
+        int: pt 所在的triangle trangleList里的 索引 ; 若不在任意三角形，就返回 -1
+    https://stackoverflow.com/questions/2049582/how-to-determine-if-a-point-is-in-a-2d-triangle
+    """
+    
+    tri_id = [-1]
+    
+    n_tri = trangleList.shape[0]
+    px, py = qt[0], qt[1]
+    
+    for i in range(n_tri):
+        pt1 = trangleList[i, 0:2] # (t[0],t[1]) # (u,v)
+        pt2 = trangleList[i, 2:4] # (t[2],t[3])
+        pt3 = trangleList[i, 4:6] # (t[4],t[5])
+        # # 这里不能用相等
+        # if qt==pt1:
+        #     return [-2, 0]
+        # if qt==pt2:
+        #     return [-2, 1]
+        # if qt==pt3:
+        #     return [-2, 2]
+        # if (qt==pt1 or qt==pt2 or qt==pt3):
+        #     return -2  # 表示就是某个顶点
+        
+        # # 3条边
+        # edg12 = pt1-pt2
+        # edg13 = pt1-pt3
+        # edg23 = pt2-pt3
+        # ref https://blog.csdn.net/dageda1991/article/details/77875637
+        p0x, p0y = pt1[0], pt1[1]
+        p1x, p1y = pt2[0], pt2[1]
+        p2x, p2y = pt3[0], pt3[1]
+        Area = 0.5 *(-p1y*p2x + p0y*(-p1x + p2x) + p0x*(p1y - p2y) + p1x*p2y) # 会出现0
+        if Area == 0.:
+            print('debug')
+        u = 1/(2*Area)*(p0y*p2x - p0x*p2y + (p2y - p0y)*px + (p0x - p2x)*py)
+        v = 1/(2*Area)*(p0x*p1y - p0y*p1x + (p0y - p1y)*px + (p1x - p0x)*py)
+        
+        # 根据u v 的值 分情况
+        if (u>0 and v>0 and u+v<1):
+            # 在此三角形内部
+            return [i]
+        # elif (u<0 or v<0):
+        #     # 不在此三角内 跳过
+        #     continue
+        elif (u==0 and v==0):
+            # 顶点A
+            return [-2, 0]
+        elif (u+v==1):
+            if u==1:
+                # 顶点B
+                return [-2, 1]
+            elif v==1:
+                # 顶点C
+                return [-2, 2]
+            
+        elif (u>0 and v>0 and u+v==1):
+            # 在BC上
+            return [-3, 1,2]
+        elif (u+v<1 and u>=0 and v==0):
+            # 在AB边
+            return [-3, 0,1]
+        elif (u+v<1 and u==0 and v>=0):
+            # 在AC边上
+            return [-3, 0,2]
+        else:
+            # 在当前三角外部 跳过
+            continue 
+    
+    return tri_id
+
+
+def RayCastTriPlane(ray_origin, ray_dir, vert, plane_norm):
+    """计算ray_origin为起点, ray_dir(单位向量)为方向的射线 到 三角平面(三角一顶点, 法向) 的交点
+    返回该点3d坐标 注意都是世界系下
+    ref: https://blog.csdn.net/qq_41524721/article/details/103490144
+    
+    Args:
+        ray_origin (np.array): (3,)
+        ray_dir (np.array): (3,)
+        vert (np.array): (3,)
+        plane_norm (np.array): (3,)
+    
+    return intrersected 3d point (3,)
+    """
+    
+    test_para = np.dot(ray_dir, plane_norm)
+    fenzi = np.dot((vert-ray_origin), plane_norm)
+    if np.isclose(test_para, 0):
+        if np.isclose(fenzi, 0): 
+            #  ray_origin 就在此平面 所以交点就是它
+            return -2
+        else:
+            # ray 于平面平行 无交点
+            return -1 
+    else:
+        # 正常情况
+        t = fenzi / test_para 
+        intersec = ray_origin + ray_dir * t # (3,)
+        if t<0: # debug 应该都是大于0吧 果然 t 负值 对应于下面深度负值
+            print('[RayCastTriPlane] t<0: {}'.format(t))
+            return -3 # 此情况也是舍弃的
+        
+        return intersec # .reshape(3, -1)    
 
 def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
     
@@ -371,11 +505,10 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
     # 逐帧看 image
     
     frame_reader = get_dataset(cfg, args, 1)
-    # frame_loader = DataLoader(
-    #         frame_reader, batch_size=1, shuffle=False, num_workers=1)
     n_img = frame_reader.__len__()
     K, H, W = update_cam(cfg) # 得到内参矩阵
-    
+    invK = np.linalg.inv(K)
+    DEPTHSCALE = cfg['cam']['png_depth_scale']
     idx_map = [] # 记录每张图上 有效triangulate 以及 所有verts 和之前原3d 数据的idx 的映射关系 list 里是多个字典 每个字典是个List 里面两个字典
     # 分别表示 有效triangulate 和 verts
     
@@ -384,12 +517,16 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
         # idx = idx.item()
         if (not idx in dic_est.keys()):
             continue # 非kf 暂时不投影
-        if idx != 813: # 813 > 0
-            continue # break
+        # if idx != 813: # 813 > 0
+        #     continue # break
+        # if idx == 0: # 813 > 0
+        #     continue # break
+        if idx > 45: # 813 > 0
+            break # break
         rgbpath = frame_reader.color_paths[idx]
         color_data = cv2.imread(rgbpath) # h,w,3 unit8
         print('process frame {}'.format(rgbpath))
-        # color_data = cv2.cvtColor(color_data, cv2.COLOR_BGR2RGB) 
+        color_data = cv2.cvtColor(color_data, cv2.COLOR_BGR2RGB) 
         #Rectangle to be used with Subdiv2D
         size = color_data.shape # h, w, 3
         rect = (0,0,size[1],size[0])
@@ -399,61 +536,165 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
         kfarr = np.loadtxt(kffile, skiprows=1) # (N,7) , fmt='%d %d %d %d %.6f %.6f %.6f'
         # 转为字典 no
         kpts = kfarr[:, 1:3] # .astype(np.int32) # (n,2)
-        # for k in range(kfarr.shape[0]):
-        #     mpid = kfarr[k, 3]
-        #     if mpid > 0: # 作为第二次过滤
-        #         if not(mpid in ind): # pcd filter 认为是 离群点 也认为不做三角剖分
-        #             kfarr[k, 3] = -1 
-        kfarr1 = filterkpt(copy.deepcopy(kfarr), ind)
-        kpts_wdepth = kpts[kfarr1[:, 3]>0] # 那些有深度的点才用 看作第一次过滤
+        kfarr1 = filterkpt(copy.deepcopy(kfarr), ind) # 3d 点云上的过滤1次 看作再一次过滤 kfarr1 只是 mptid 那栏 falg 变了
+        kpts_wdepth = kpts[kfarr1[:, 3]>0] # 那些有深度的点才用 
+        kfarr = copy.deepcopy(kfarr1) # debug
         # 还要就取出首行 Tcw
         tum_i = np.loadtxt(kffile, max_rows=1) # , fmt='%.1f %.6f %.6f %.6f %.6f %.6f %.6f %.6f'
         assert int(tum_i[0]*10) == idx
         kf_tq = tum_i[1:]
         kf_w2c = np.array(TQtoSE3(kf_tq))
-        # 拿出orb 的 pose
-        # orb_tq = dic_est[idx]
-        # orb_c2w = np.array(TQtoSE3(orb_tq))
-        # orb_w2c = np.linalg.inv(orb_c2w)
-        # debug = np.matmul(kf_w2c, orb_c2w)
-        # print('test kf w2c: \n', debug)
+        kf_c2w = np.linalg.inv(kf_w2c)
+        R_c2w = kf_c2w[0:3, 0:3]
         # 对 kpts 做2d上的三角剖分
         #Create an instance of Subdiv2d
         subdiv = cv2.Subdiv2D(rect)
-        subdiv.insert(kpts_wdepth)
-        # 临时插入 跃变的点
-        # subdiv.insert((957, 365))
-        subdiv.insert((959, 367))
-        # subdiv.insert((959, 370))
-        
-        # subdiv.insert((978, 330))
-        subdiv.insert((980, 333))
-        # subdiv.insert((982, 334))
-        #Draw delaunary triangles
-        draw_delaunay(color_data,subdiv,(255,255,255))
+        subdiv.insert(np.around(kpts_wdepth))
 
         #Draw points
-        draw_point(color_data,(959, 367),(49,125,237))
-        draw_point(color_data,(980, 333),(49,125,237))
-        cv2.line(color_data,(959, 367),(980, 333),(0,255,0),1)
-        cv2.line(color_data,(973,412),(980, 333),(0,255,0),1)
-        
-        for p in kpts_wdepth.astype(np.int32):
+        for p in np.around(kpts_wdepth).astype(np.int32): #.astype(np.int32):
             draw_point(color_data,p,(0,0,255))
         win_delaunary = "%04d-delaunay triangulation" % idx
         #Show results
-        cv2.imshow(win_delaunary,color_data)
-        cv2.waitKey(0)
+        # cv2.imshow(win_delaunary,color_data)
+        # cv2.waitKey(0) # 注意 光标在窗口上时 按空格键 才能正常退出
         # save img dt kpt(只画 kpt)
         outvisfile = os.path.join('triangulation', "dt%04d.jpg" % idx)
-        # cv2.imwrite(outvisfile, color_data)
+        
         
         # 估计粗糙的深度图 to do
-        
-        
-        
-        
+        est_depth = np.zeros((size[0], size[1])) # 初始深度全0
+        # 由于还没搞懂 subdiv locate 的含义 这里就简单粗暴的遍历来Locate 在哪个三角形吧
+        trangleList = np.around(subdiv.getTriangleList()).astype(np.int32) # .astype(np.int32) # (8630,6 ?)
+        # #Draw delaunary triangles 先用白色画全部的
+        # draw_delaunay(color_data,trangleList,(255,255,255))
+        tri_flag = np.ones(trangleList.shape[0]) # 记录 哪些三角面是有效的
+        # 遍历每个像素
+        for u in range(size[1]):
+            for v in range(size[0]):
+                # if (u != 538 or v != 87) and (u != 68 or v != 222):
+                #     continue
 
+                qt = [u, v]
+                ret = locate_triangle(qt, trangleList) # 对于在顶点上的判断有错误
+                if ret[0] < 0 and ret[0] != -2:
+                    continue
+                
+                if ret[0] == -2:
+                    kpidxq = getkptidx(qt, kfarr)
+                    qmapt = kfarr[kpidxq, 4:7]
+                    if kfarr[kpidxq, 3] < 0:
+                        print('ERROR')
+                        assert False
+                else:
+                    tri_valid = trangleList[ret[0]] # 当前像素在三级哦行内 所在三角形  (6) 各顶点坐标
+                    pt1 = tri_valid[0:2] # (t[0],t[1]) # (u,v)
+                    pt2 = tri_valid[2:4] 
+                    pt3 = tri_valid[4:6]
+                    pts = np.stack([pt1, pt2, pt3], 0) # (3,2)
+                    # 拿出各点对应的 3d 点 
+                    # tri_depth = []
+                    # for kpt in pts:
+                    #     kpidx = getkptidx(kpt, kfarr)
+                    #     mapt = kfarr[kpidx, 4:7].rehape(3, -1) # (3) -> (3,1)
+                    #     mapt = np.concatenate([mapt, np.array([[1]])], 1)
+                    #     depth_kpt = np.matmul(kf_w2c, map)[2] # (4,4) (4,1)
+                    #     tri_depth += [kpt[0], kpt[1], depth_kpt]
+                    # tri_depth = np.stack(tri_depth, 3) # (3,3) 各kpt 和其深度
+                    # 通过三角形插值得到此像素深度
+                    # 先找这顶点像素 在 原 kfarr 中的下标 np.around(kfarr[:, 1:3]).astype(np.int32)
+                    kpidx1 = getkptidx(pt1, kfarr)
+                    kpidx2 = getkptidx(pt2, kfarr)
+                    kpidx3 = getkptidx(pt3, kfarr)
+                    if kfarr[kpidx1, 3] == -1 or kfarr[kpidx2, 3] == -1 or kfarr[kpidx3, 3] == -1:
+                        print('error')
+                    mapt1 = kfarr[kpidx1, 4:7] # (3,)  为啥这里找到的点 还是 没有3d对应的？
+                    mapt2 = kfarr[kpidx2, 4:7]
+                    mapt3 = kfarr[kpidx3, 4:7]
+                    # 计算 改平面法线 以及顶点0, 当前像素 的ray 的方向, ray 起点（当前pose的twc）
+                    ray_origin = kf_c2w[:3, 3] # (3,)
+                    qt += [1]
+                    qt = np.array(qt) # (3,)
+                # if ret[0] == -2: # 查询点就是已有某关键点 那就不用再寻找和三角面的交点了
+                #     vertid = ret[1] + 1
+                #     if vertid==1:
+                #         qmapt = mapt1
+                #     elif vertid==2:
+                #         qmapt = mapt2
+                #     elif vertid==3:
+                #         qmapt = mapt3
+                #     else:
+                #         assert False
+                # else:
+                    ray_dir = np.matmul(invK, qt) # 注意这里是 cam 坐标系 得转换到世界系
+                    ray_dir_w = np.matmul(R_c2w, ray_dir)
+                    ray_dirwunit = ray_dir_w / np.linalg.norm(ray_dir_w)
+                    plane_norm = np.cross(mapt1-mapt2, mapt1-mapt3) # 在这里出现nan了 是因为此三角形 2d上很近 面积很小 3d 上有两个点很接近
+                    # debug = (np.linalg.norm(plane_norm)==np.linalg.norm(plane_norm)) # (True in np.isnan(plane_norm))
+                    
+                    plane_norm = plane_norm / np.linalg.norm(plane_norm)
+                    qmapt = RayCastTriPlane(ray_origin, ray_dirwunit, mapt1, plane_norm) # (3,)
+                    if type(qmapt) == int:
+                        if qmapt == -3:
+                            if ( idx <= 45 ): 
+                                print('t<0, skip')
+                            continue # 此交点无效
+                        if qmapt==-2 or qmapt==-1:
+                            print('RayCastTriPlane ERROR')
+                            assert False
+                if (True in np.isnan(qmapt)):
+                    # 设置此三角面无效
+                    tri_flag[ret[0]] = -1
+                    # print('plane has nan, skip this, 3mapt: \n', mapt1, mapt2, mapt3)
+                    continue
+                # 将上面求得 估计的 交点3d点(世界系) 投到相机上 就得到深度
+                qmapt_h = np.concatenate([qmapt, np.array([1])], 0) # (4,)
+                qmapt_c = np.matmul(kf_w2c, qmapt_h)[:3] # (3,)
+                dd = qmapt_c[2]
+                if dd < 0 or dd > 10:
+                    if ( idx <= 45 ): 
+                        print('query is kpt: {}, invalid depth: {}'.format( (ret[0] == -2), dd))
+                    continue
+                if np.isclose(dd, 0):
+                    print('query is kpt: {}, coarse depth close 0: {}'.format( (ret[0] == -2), dd))
+                    break
+                # 验证该点 是否投到当前像素点
+                qmapt_c_img = np.around(np.matmul(K, (qmapt_c/dd))) # [0:2] 会出现全 nan
+                contain_nan = (True in np.isnan(qmapt_c_img))
+                if contain_nan:
+                    print('proj has nan')
+                debug = abs(qmapt_c_img[0]-u) <= 3. and abs(qmapt_c_img[1]-v) <= 3.
+                if not debug and (ret[0] >= 0 ):
+                    print('query: ', qt)
+                    print('depth proj: ', qmapt_c_img)
+                
+                # assert debug
+                # assert ( abs(qmapt_c_img[0]-u) <= 1. and abs(qmapt_c_img[1]-v) <= 1.)
+                # 对深度赋值  值会有问题
+                est_depth[v, u] = qmapt_c[2]
+        
+        #Draw delaunary triangles 再用绿色 画出保留下来的
+        draw_delaunay(color_data,trangleList[tri_flag>0],(0,255,0))
+        draw_delaunay(color_data,trangleList[tri_flag<0],(255,255,255)) # 再画出白色的边 表示 被舍弃的
+        # 对当前估计的深度图 可视化 可视化有点问题
+        est_depth_vis = est_depth/np.max(est_depth)*255
+        est_depth_vis = np.clip(est_depth_vis, 0, 255).astype(np.uint8)
+        est_depth_vis = cv2.applyColorMap(est_depth_vis, cv2.COLORMAP_JET)
+        # est_depth_vis = cv2.cvtColor(est_depth_vis, cv2.COLOR_GRAY2RGB)
+        whole = np.concatenate([color_data, est_depth_vis], axis=1)
+        tH = H//2
+        tW = W//2 #为了保证ffmpeg拿到的是大小能被2整除
+        whole  = cv2.resize(whole, (tW+tW%2, tH+tH%2))
+        # cv2.imshow(f'dt and coarse depth', whole[:, :, ::-1])
+        # cv2.waitKey(0)
+        # 保存为 uint 格式 和原gt depth一样格式吧 6553.5
+        est_depth = est_depth * DEPTHSCALE
+        # 对于实际深度> 65535 的就按最大值 就会成为白色
+        depthclip = np.clip(est_depth, 0 , 65535) # 10000
+        savepath = os.path.join('triangulation/coarsedepth', "cd%04d.png" % idx)
+        cv2.imwrite(savepath, depthclip.astype(np.uint16))
+        cv2.imwrite(outvisfile, cv2.cvtColor(color_data, cv2.COLOR_BGR2RGB))
+        print('save coasrse depth: {}'.format(savepath))
 
 
 
