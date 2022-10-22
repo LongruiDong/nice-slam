@@ -281,24 +281,76 @@ def filterkpt(kfarr, inlier_list): # 加速下
     
     return data
 
-@jit(nopython=True) # (nopython=True) 
+def com_norm(arr):
+    return math.sqrt(arr[0]*arr[0] + arr[1]*arr[1])
+
+@jit # (nopython=True) # (nopython=True) 
+def findloop(arr, data, qt): # 加速下
+    tsmax = 100000.
+    locidx = -1
+    for i in range(arr.shape[0]):
+        k = arr[i]
+        flag = data[k, 3]
+        if flag < 0: # 无效点
+            continue
+        kpt = data[k, 1:3]
+        subarr = kpt - qt
+        norm = math.sqrt(subarr[0]*subarr[0] + subarr[1]*subarr[1])
+        if norm < tsmax:
+            locidx = k
+            tsmax = norm
+    return locidx # 会有多个？
+
+
 def getkptidx(qt, kfarr): # 加速下
     '''
     在kfarray kptid u v 3dpid(-1表示没有对应) x y z
     中 找到 qt 像素点的位置
     '''
     data = kfarr # [:, 1:3] #np.around(kfarr[:, 1:3]).astype(np.int32)
-    locidx = -1 
-    for k in range(kfarr.shape[0]):
-        flag = data[k, 3]
-        if flag < 0: # 无效点
-            continue
-        kpt = data[k, 1:3]
-        if (int(round(kpt[0])) == qt[0]) and (int(round(kpt[1])) == qt[1]) : # 是此点
-            locidx = k
-            return locidx
-            
-    return locidx # 没找到此点 不该发生
+    # tsmax = 100000.
+    locidx = -1
+    # for k in range(kfarr.shape[0]):
+    #     flag = data[k, 3]
+    #     if flag < 0: # 无效点
+    #         continue
+    #     kpt = data[k, 1:3]
+    #     # if (int(round(kpt[0])) == qt[0]) and (int(round(kpt[1])) == qt[1]) : # 是此点
+    #     #     print("debug")
+    #     subarr = kpt - qt
+    #     if math.sqrt(subarr[0]*subarr[0] + subarr[1]*subarr[1]) < tsmax :
+    #         # locidx += [k]
+    #         locidx = k
+    #         tsmax = math.sqrt(subarr[0]*subarr[0] + subarr[1]*subarr[1])
+    #         # return locidx
+    # 改为 np.where
+    arr1 = np.where(np.round(data[:, 1])==qt[0])
+    if type(arr1) == tuple:
+        arr1 = arr1[0]
+    
+    if arr1.shape[0] == 0 : # 连四舍五入后 都没有接近的 认为没有 不应该发生的
+        return locidx
+    # locidx = findloop(arr1, data, qt)
+    sub = data[arr1, 1:3] - qt # (x,2)
+    # 还要避免 flag==-1的
+    if sub[data[arr1, 3]<0].shape[0] > 0:
+        sub[data[arr1, 3]<0] += 1000000.
+    norms = np.linalg.norm(sub, axis=1) # (x,)
+    # 拿出上面数组 最小值索引
+    min_norm_idx = np.argmin(norms)
+    locidx = arr1[min_norm_idx]
+    # for i in range(arr1.shape[0]):
+    #     k = arr1[i]
+    #     flag = data[k, 3]
+    #     if flag < 0: # 无效点
+    #         continue
+    #     kpt = data[k, 1:3]
+    #     subarr = kpt - qt
+    #     norm = math.sqrt(subarr[0]*subarr[0] + subarr[1]*subarr[1])
+    #     if norm < tsmax:
+    #         locidx = k
+    #         tsmax = norm
+    return locidx # 会有多个？
 
 @jit(nopython=True) # (nopython=True)
 def locate_triangle(qt, trangleList):
@@ -358,14 +410,14 @@ def locate_triangle(qt, trangleList):
         #     continue
         elif (u==0 and v==0):
             # 顶点A
-            return [-2, 0]
+            return [-2, i]
         elif (u+v==1):
             if u==1:
                 # 顶点B
-                return [-2, 1]
+                return [-2, i]
             elif v==1:
                 # 顶点C
-                return [-2, 2]
+                return [-2, i]
             
         elif (u>0 and v>0 and u+v==1):
             # 在BC上
@@ -411,7 +463,7 @@ def RayCastTriPlane(ray_origin, ray_dir, vert, plane_norm):
         t = fenzi / test_para 
         intersec = ray_origin + ray_dir * t # (3,)
         if t<0: # debug 应该都是大于0吧 果然 t 负值 对应于下面深度负值
-            print('[RayCastTriPlane] t<0: {}'.format(t))
+            # print('[RayCastTriPlane] t<0: {}'.format(t))
             return -3 # 此情况也是舍弃的
         
         return intersec # .reshape(3, -1)    
@@ -452,13 +504,18 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
     pcd.normals = o3d.utility.Vector3dVector(xyzs[:, :3] / np.linalg.norm(xyzs[:, :3], axis=-1, keepdims=True)) # 每个位置点到原点的距离  每个位置单位向量        
     # 对点云滤波 open3d的函数
     # http://www.open3d.org/docs/release/tutorial/geometry/pointcloud_outlier_removal.html
+    # 原点云 边界
+    print('raw pcd box: \n', pcd.get_axis_aligned_bounding_box())
     print("Statistical oulier removal")
-    cl, ind = pcd.remove_statistical_outlier(nb_neighbors=30, std_ratio=2.0) # 20 2
-    inlier_cloud = display_inlier_outlier(pcd, ind, vis=False) # , vis=True
+    cl, ind = pcd.remove_statistical_outlier(nb_neighbors=30, std_ratio=1.5) # 20,30 2
+    inlier_cloud = display_inlier_outlier(pcd, ind, vis=False) # , vis=True False
     mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(
     size=1.0, origin=[0, 0, 0]) #显示坐标系 1.0 20.0
     vis_lst = [inlier_cloud, mesh_frame]
     # o3d.visualization.draw_geometries(vis_lst)
+    # inlier 的边界：
+    print('inlier pcd box: \n', inlier_cloud.get_axis_aligned_bounding_box())
+    # return -1
     estpose = np.loadtxt(kftrajfile) # 本身是kf pose
     print('load pred pose from {}'.format(kftrajfile))
     gtpose, _ = load_traj(gttrajfile, save=os.path.join(cfg['data']['input_folder'], 'tum_gt.txt'), firstI=False)
@@ -521,8 +578,8 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
         #     continue # break
         # if idx == 0: # 813 > 0
         #     continue # break
-        if idx > 45: # 813 > 0
-            break # break
+        # if idx > 45: # 813 > 0
+        #     break # break
         rgbpath = frame_reader.color_paths[idx]
         color_data = cv2.imread(rgbpath) # h,w,3 unit8
         print('process frame {}'.format(rgbpath))
@@ -536,9 +593,10 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
         kfarr = np.loadtxt(kffile, skiprows=1) # (N,7) , fmt='%d %d %d %d %.6f %.6f %.6f'
         # 转为字典 no
         kpts = kfarr[:, 1:3] # .astype(np.int32) # (n,2)
-        kfarr1 = filterkpt(copy.deepcopy(kfarr), ind) # 3d 点云上的过滤1次 看作再一次过滤 kfarr1 只是 mptid 那栏 falg 变了
+        kfarr1 = filterkpt(copy.deepcopy(kfarr), ind) # 3d 点云上的过滤1次 看作再一次过滤 kfarr1 只是 mptid 那栏 falg 变了 看过到后面那帧时  是会变的
+        # continue
         kpts_wdepth = kpts[kfarr1[:, 3]>0] # 那些有深度的点才用 
-        kfarr = copy.deepcopy(kfarr1) # debug
+        # kfarr = copy.deepcopy(kfarr1) # debug
         # 还要就取出首行 Tcw
         tum_i = np.loadtxt(kffile, max_rows=1) # , fmt='%.1f %.6f %.6f %.6f %.6f %.6f %.6f %.6f'
         assert int(tum_i[0]*10) == idx
@@ -574,6 +632,10 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
             for v in range(size[0]):
                 # if (u != 538 or v != 87) and (u != 68 or v != 222):
                 #     continue
+                # if (u != 551 or v != 85): # kfarr中有两个 接近
+                #     continue
+                # if (u != 385 or v != 204): # 没找到
+                #     continue
 
                 qt = [u, v]
                 ret = locate_triangle(qt, trangleList) # 对于在顶点上的判断有错误
@@ -581,51 +643,46 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
                     continue
                 
                 if ret[0] == -2:
-                    kpidxq = getkptidx(qt, kfarr)
-                    qmapt = kfarr[kpidxq, 4:7]
-                    if kfarr[kpidxq, 3] < 0:
-                        print('ERROR')
+                    kpidxq = getkptidx(qt, kfarr1) # 造成下面gug是由于 这里返回-1
+                    if kpidxq < 0:
+                        print('ERROR. frame {}, qt: {}, {}'.format(idx, u, v))
+                        assert False
+                    qmapt = kfarr1[kpidxq, 4:7]
+                    if kfarr1[kpidxq, 3] < 0:
+                        print('ERROR') # 按道理前面三角形顶点已经过滤过了 为何这里还有
                         assert False
                 else:
                     tri_valid = trangleList[ret[0]] # 当前像素在三级哦行内 所在三角形  (6) 各顶点坐标
                     pt1 = tri_valid[0:2] # (t[0],t[1]) # (u,v)
                     pt2 = tri_valid[2:4] 
                     pt3 = tri_valid[4:6]
-                    pts = np.stack([pt1, pt2, pt3], 0) # (3,2)
-                    # 拿出各点对应的 3d 点 
-                    # tri_depth = []
-                    # for kpt in pts:
-                    #     kpidx = getkptidx(kpt, kfarr)
-                    #     mapt = kfarr[kpidx, 4:7].rehape(3, -1) # (3) -> (3,1)
-                    #     mapt = np.concatenate([mapt, np.array([[1]])], 1)
-                    #     depth_kpt = np.matmul(kf_w2c, map)[2] # (4,4) (4,1)
-                    #     tri_depth += [kpt[0], kpt[1], depth_kpt]
-                    # tri_depth = np.stack(tri_depth, 3) # (3,3) 各kpt 和其深度
-                    # 通过三角形插值得到此像素深度
+                    # pts = np.stack([pt1, pt2, pt3], 0) # (3,2)
                     # 先找这顶点像素 在 原 kfarr 中的下标 np.around(kfarr[:, 1:3]).astype(np.int32)
-                    kpidx1 = getkptidx(pt1, kfarr)
-                    kpidx2 = getkptidx(pt2, kfarr)
-                    kpidx3 = getkptidx(pt3, kfarr)
-                    if kfarr[kpidx1, 3] == -1 or kfarr[kpidx2, 3] == -1 or kfarr[kpidx3, 3] == -1:
+                    kpidx1 = getkptidx(pt1, kfarr1)
+                    if kpidx1 < 0:
+                        print('ERROR. frame {}, pt1: {}, {}'.format(idx, pt1[0], pt1[1]))
+                        assert False
+                    kpidx2 = getkptidx(pt2, kfarr1) # 0000.jpg [551,85] 两个
+                    if kpidx2 < 0:
+                        print('ERROR. frame {}, pt2: {}, {}'.format(idx, pt2[0], pt2[1]))
+                        assert False
+                    kpidx3 = getkptidx(pt3, kfarr1)
+                    if kpidx3 < 0:
+                        print('ERROR. frame {}, pt3: {}, {}'.format(idx, pt3[0], pt3[1]))
+                        assert False
+                    if kfarr1[kpidx1, 3] == -1 or kfarr1[kpidx2, 3] == -1 or kfarr1[kpidx3, 3] == -1:
                         print('error')
-                    mapt1 = kfarr[kpidx1, 4:7] # (3,)  为啥这里找到的点 还是 没有3d对应的？
-                    mapt2 = kfarr[kpidx2, 4:7]
-                    mapt3 = kfarr[kpidx3, 4:7]
+                        assert False
+                    if not(kfarr1[kpidx1, 3] in ind) or not(kfarr1[kpidx2, 3] in ind) or not(kfarr1[kpidx3, 3] in ind): # pcd filter 认为是 离群点
+                        print('error')
+                        assert False
+                    mapt1 = kfarr1[kpidx1, 4:7] # (3,)  为啥这里找到的点 还是 没有3d对应的？
+                    mapt2 = kfarr1[kpidx2, 4:7]
+                    mapt3 = kfarr1[kpidx3, 4:7]
                     # 计算 改平面法线 以及顶点0, 当前像素 的ray 的方向, ray 起点（当前pose的twc）
                     ray_origin = kf_c2w[:3, 3] # (3,)
                     qt += [1]
                     qt = np.array(qt) # (3,)
-                # if ret[0] == -2: # 查询点就是已有某关键点 那就不用再寻找和三角面的交点了
-                #     vertid = ret[1] + 1
-                #     if vertid==1:
-                #         qmapt = mapt1
-                #     elif vertid==2:
-                #         qmapt = mapt2
-                #     elif vertid==3:
-                #         qmapt = mapt3
-                #     else:
-                #         assert False
-                # else:
                     ray_dir = np.matmul(invK, qt) # 注意这里是 cam 坐标系 得转换到世界系
                     ray_dir_w = np.matmul(R_c2w, ray_dir)
                     ray_dirwunit = ray_dir_w / np.linalg.norm(ray_dir_w)
@@ -651,8 +708,8 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
                 qmapt_h = np.concatenate([qmapt, np.array([1])], 0) # (4,)
                 qmapt_c = np.matmul(kf_w2c, qmapt_h)[:3] # (3,)
                 dd = qmapt_c[2]
-                if dd < 0 or dd > 10:
-                    if ( idx <= 45 ): 
+                if dd < 0 or dd > 9: # 10 9
+                    if ( True ): # idx <= 45
                         print('query is kpt: {}, invalid depth: {}'.format( (ret[0] == -2), dd))
                     continue
                 if np.isclose(dd, 0):
