@@ -33,6 +33,8 @@ from matplotlib.patches import Polygon
 
 import cv2
 from numba import jit
+# 用来分析时间
+import line_profiler as lp
 
 fps = 10 # 生成伪时间 但要根据设置的帧率
 
@@ -674,9 +676,9 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
                     if kfarr1[kpidx1, 3] == -1 or kfarr1[kpidx2, 3] == -1 or kfarr1[kpidx3, 3] == -1:
                         print('error')
                         assert False
-                    if not(kfarr1[kpidx1, 3] in ind) or not(kfarr1[kpidx2, 3] in ind) or not(kfarr1[kpidx3, 3] in ind): # pcd filter 认为是 离群点
-                        print('error')
-                        assert False
+                    # if not(kfarr1[kpidx1, 3] in ind) or not(kfarr1[kpidx2, 3] in ind) or not(kfarr1[kpidx3, 3] in ind): # pcd filter 认为是 离群点
+                    #     print('error') # 上面这个判断 太耗时！ 关掉！
+                    #     assert False
                     mapt1 = kfarr1[kpidx1, 4:7] # (3,)  为啥这里找到的点 还是 没有3d对应的？
                     mapt2 = kfarr1[kpidx2, 4:7]
                     mapt3 = kfarr1[kpidx3, 4:7]
@@ -776,5 +778,13 @@ if __name__ == '__main__':
     
     # 读取参数
     orbmapdir = args.orbmapdir
+    # # 自己制作一个profile工具，并且传入要分析的代码
+    # profile = lp.LineProfiler(main)
+    # # 起始分析
+    # profile.enable()
+    main(cfg, args, orbmapdir=orbmapdir) # 调用函数，这里还是正常传入参数的哦
+    # # 停止分析，这里就相当于只分析get_url_txt这个函数
+    # profile.disable()
+    # # 打印结果
+    # profile.print_stats()
     
-    main(cfg, args, orbmapdir=orbmapdir)
