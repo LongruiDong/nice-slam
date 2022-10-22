@@ -270,15 +270,16 @@ def display_inlier_outlier(cloud, ind, vis=True):
                                         #   up=[-0.0694, -0.9768, 0.2024])
     return inlier_cloud
 
-@jit(nopython=True) # (nopython=True) 
-def filterkpt(kfarr, inlier_list): # 加速下
+# @jit # (nopython=True) # (nopython=True) 
+def filterkpt(kfarr, inlier_list): # 加速下  改用数组 运算 改进
     data = kfarr # copy.deepcopy(kfarr)
-    for k in range(kfarr.shape[0]):
-        mpid = data[k, 3]
-        if mpid >= 0: # 作为第二次过滤 ! 0也是
-            if not(mpid in inlier_list): # pcd filter 认为是 离群点 也认为不做三角剖分
-                data[k, 3] = -1
-    
+    # for k in range(kfarr.shape[0]):
+    #     mpid = data[k, 3]
+    #     if mpid >= 0: # 作为第二次过滤 ! 0也是
+    #         if not(mpid in inlier_list): # pcd filter 认为是 离群点 也认为不做三角剖分
+    #             data[k, 3] = -1
+    inlier = np.array(inlier_list)
+    data[~np.isin(data[:,3], inlier),3] = -1
     return data
 
 def com_norm(arr):
@@ -352,7 +353,7 @@ def getkptidx(qt, kfarr): # 加速下
     #         tsmax = norm
     return locidx # 会有多个？
 
-@jit(nopython=True) # (nopython=True)
+@jit(nopython=True) # (nopython=True) # (nopython=True)
 def locate_triangle(qt, trangleList):
     """自己写一个粗暴遍历 当前所有三角形 判断当前点的位置
        有多种情况 [0,]表示就在内部
@@ -638,7 +639,7 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
                 #     continue
 
                 qt = [u, v]
-                ret = locate_triangle(qt, trangleList) # 对于在顶点上的判断有错误
+                ret = locate_triangle(np.array(qt), trangleList) # 对于在顶点上的判断有错误
                 if ret[0] < 0 and ret[0] != -2:
                     continue
                 
