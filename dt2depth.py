@@ -594,7 +594,7 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
         kfarr = np.loadtxt(kffile, skiprows=1) # (N,7) , fmt='%d %d %d %d %.6f %.6f %.6f'
         # 转为字典 no
         kpts = kfarr[:, 1:3] # .astype(np.int32) # (n,2)
-        kfarr1 = filterkpt(copy.deepcopy(kfarr), ind) # 3d 点云上的过滤1次 看作再一次过滤 kfarr1 只是 mptid 那栏 falg 变了 看过到后面那帧时  是会变的
+        kfarr1 = filterkpt(kfarr, ind) # 3d 点云上的过滤1次 看作再一次过滤 kfarr1 只是 mptid 那栏 falg 变了 看过到后面那帧时  是会变的
         # continue
         kpts_wdepth = kpts[kfarr1[:, 3]>0] # 那些有深度的点才用 
         # kfarr = copy.deepcopy(kfarr1) # debug
