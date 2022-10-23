@@ -4,9 +4,10 @@ import os
 # -*- coding:utf-8 -*-
 import cv2
 import numpy as np
+from tomlkit import value
 import torch
 import torch.nn.functional as F
-from src.common import as_intrinsics_matrix
+from src.common import as_intrinsics_matrix, TQtoSE3
 from torch.utils.data import Dataset
 import yaml
 from tqdm import tqdm
@@ -101,18 +102,34 @@ class BaseDataset(Dataset):
         self.depth_trunc = cfg['cam']['depth_trunc'] #深度截断
         self.sky_depth = cfg['cam']['sky_depth'] #clip需要
         
+        # 和 prior coarse geometry 有关的设置参数
+        self.use_prior = cfg['use_prior'] # 是否载入 est depth 作为 gt deptj
+        self.prior_scale = cfg['prior_scale'] # orb 的输出需要 X 此数 才是 对应的值
+        if self.use_prior:
+            self.prior_folder = cfg['data']['prior_folder']
+        
     def __len__(self):
         return self.n_img
 
     def __getitem__(self, index):
+        if type(index) == torch.Tensor:
+            index = index.item() 
         color_path = self.color_paths[index]
-        depth_path = self.depth_paths[index]
+        if self.use_prior: # 若使用 prior 就是直接看id 不一定存在
+            if not index in self.prior_poses.keys():
+                depth_path = None # 用key 来看是否是kf
+            else:
+                depth_path = f'{self.prior_folder}/triangulation/coarsedepth/cd' + '%04d' % index + '.png'
+        else:
+            depth_path = self.depth_paths[index]
         color_data = cv2.imread(color_path)
-        if '.png' in depth_path:
+        if depth_path is None:
+            depth_data = None
+        elif ('.png' in depth_path):
             depth_data = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED)
             if self.sky_depth > 0:
                 depth_data = np.clip(depth_data, 0, self.sky_depth*self.png_depth_scale)
-        elif '.npy' in depth_path: #对于tartanqir来说 gt depth 保存真实数值 m 0~ 10000（infinite）
+        elif ('.npy' in depth_path): #对于tartanqir来说 gt depth 保存真实数值 m 0~ 10000（infinite）
             depth_data = np.load(depth_path)
             # 实际上给的深度是有大于 10000 即使是office 所以先clip吧
             depth_data = np.clip(depth_data, 0, 10000)
@@ -124,16 +141,19 @@ class BaseDataset(Dataset):
             #     # 在 [qx, qy]处进行双线性插值
             #     depth_data = bilinear_interp(depth_data, qx, qy)
             #     print('aft interp, max: {}'.format(np.max(depth_data)))
-        elif '.exr' in depth_path:
+        elif ('.exr' in depth_path):
             depth_data = readEXR_onlydepth(depth_path)
+        # elif depth_path is None:
+        #     depth_data = None
         if self.distortion is not None:
             K = as_intrinsics_matrix([self.fx, self.fy, self.cx, self.cy])
             # undistortion is only applied on color image, not depth!
             color_data = cv2.undistort(color_data, K, self.distortion)
         color_data = cv2.cvtColor(color_data, cv2.COLOR_BGR2RGB)
         color_data = color_data / 255.
-        depth_data = depth_data.astype(np.float32) / self.png_depth_scale
-        if self.sky_depth > 0:
+        if depth_data is not None:
+            depth_data = depth_data.astype(np.float32) / self.png_depth_scale
+        if self.sky_depth > 0 and depth_data is not None:
             depth_data = np.clip(depth_data, 0, self.sky_depth)
             depth_data1 = copy.deepcopy(depth_data)
             depth_data1[depth_data >= self.sky_depth] = 0.0 # 直接让无穷远的深度为0 ！
@@ -142,7 +162,7 @@ class BaseDataset(Dataset):
                 print('clip depth at: ',self.sky_depth)
                 # print('aft clip, max: {}'.format(np.max(depth_data)))
                 
-        if self.depth_trunc > 0:
+        if self.depth_trunc > 0 and depth_data is not None: # 对于不准的先验深度 得用上！
             if index==0:
                 print('trunc depth at: ',self.depth_trunc)
             depth_data1 = copy.deepcopy(depth_data)
@@ -156,26 +176,40 @@ class BaseDataset(Dataset):
             depth_data[stdv_data>self.stdmax] = 0.0
             if index<=1: 
                 print('prune stdv > {:f}'.format(self.stdmax))
-        H, W = depth_data.shape
+        if depth_data is not None:
+            H, W = depth_data.shape
+        else: # 对于replica size 和 color一样
+            H, W = self.H, self.W
         color_data = cv2.resize(color_data, (W, H))
         color_data = torch.from_numpy(color_data)
-        depth_data = torch.from_numpy(depth_data)*self.scale #场景深度×尺度
+        if self.use_prior: # 若使用 prior depth 那就还要用另一个参数来对齐
+            if depth_data is not None:
+                depth_data = torch.from_numpy(depth_data)*self.prior_scale #场景深度×尺度
+        else:
+            depth_data = torch.from_numpy(depth_data)*self.scale #场景深度×尺度
         if self.crop_size is not None:
             # follow the pre-processing step in lietorch, actually is resize
             color_data = color_data.permute(2, 0, 1)
             color_data = F.interpolate(
                 color_data[None], self.crop_size, mode='bilinear', align_corners=True)[0]
-            depth_data = F.interpolate(
-                depth_data[None, None], self.crop_size, mode='nearest')[0, 0]
+            if depth_data is not None:
+                depth_data = F.interpolate(
+                    depth_data[None, None], self.crop_size, mode='nearest')[0, 0]
             color_data = color_data.permute(1, 2, 0).contiguous()
 
         edge = self.crop_edge
         if edge > 0:
             # crop image edge, there are invalid value on the edge of the color image
             color_data = color_data[edge:-edge, edge:-edge]
-            depth_data = depth_data[edge:-edge, edge:-edge]
+            if depth_data is not None:
+                depth_data = depth_data[edge:-edge, edge:-edge]
         pose = self.poses[index]
         pose[:3, 3] *= self.scale #和深度x同一尺度因子
+        if self.use_prior:
+            if not index in self.prior_poses.keys():
+                prior_pose = None # 用key 来看是否是kf
+            else:
+                prior_pose = self.prior_poses[index] # prior已经尺度对齐到gt了
         if False: # 稀疏化depth
             mask1 = -np.ones_like(depth_data)
             ikp = np.array(random.sample(range(0, W-1), 100))
@@ -192,8 +226,13 @@ class BaseDataset(Dataset):
             # j = j.reshape(-1)
             # indices = torch.randint(i.shape[0], (100,)) # 值域[0，总像素数) 的size为(n)的向量
             # indices = indices.clamp(0, i.shape[0]) # 确保值域范围 （多此一举？ 上句已经保证了）
-            
-        return index, color_data.to(self.device), depth_data.to(self.device), pose.to(self.device)
+        if self.use_prior:
+            if depth_data is not None:    
+                return index, color_data.to(self.device), depth_data.to(self.device), pose.to(self.device), prior_pose.to(self.device)
+            else: # 此时 depth 和 prior pose 都是none 为了dataloader 把none 改为 size 相同 但元素全为nan的tensor
+                return index, color_data.to(self.device), torch.full(size=[H, W], fill_value=float('nan')).to(self.device), pose.to(self.device), torch.full(size=pose.shape, fill_value=float('nan')).to(self.device)
+        else: # 正常模式
+            return index, color_data.to(self.device), depth_data.to(self.device), pose.to(self.device), torch.full(size=pose.shape, fill_value=float('nan')).to(self.device)
                     
 
     def createpcd(self, w2c_mats, skip = 30):
@@ -240,6 +279,9 @@ class Replica(BaseDataset):
         if self.wnoise:
             self.depth_paths = sorted(
                 glob.glob(f'{self.input_folder}/mydnoise/depth*.png'))
+        elif self.use_prior: # 若使用prior 粗糙且不完整的depth 其实此时没用到
+            self.depth_paths = sorted(
+                glob.glob(f'{self.prior_folder}/triangulation/coarsedepth/cd*.png'))
         else:
             self.depth_paths = sorted(
                 glob.glob(f'{self.input_folder}/results/depth*.png')) # results dnetpred 使用估计的深度
@@ -249,6 +291,9 @@ class Replica(BaseDataset):
         self.n_img = len(self.color_paths) # 301 len(self.color_paths) #测试观测不够时 的fusion效果 1000 16 init
         print('imagelen: {}'.format(self.n_img))
         self.load_poses(f'{self.input_folder}/traj.txt')
+        # 增加选择是否载入 作为先验的kf pose 的 位姿 注意 是tum 格式 c2w
+        if self.use_prior:
+            self.load_prior_poses(f'{self.prior_folder}/KeyFrameTrajectory.txt')
 
     def load_poses(self, path):
         self.poses = []
@@ -273,6 +318,47 @@ class Replica(BaseDataset):
             self.poses.append(c2w)
         
         self.w2c_mats = np.stack(w2c_mats, 0) # (N_images, 4, 4) 注意他还是原始位姿
+    
+    # 载入tum 格式的 orb output 的单目 的kf pose 最后得到的也是字典但只在kf上有值
+    def load_prior_poses(self, path):
+        """载入tum 格式的 orb output 的单目 的kf pose 最后得到的也是字典但只在kf上有值 且是从I开始的
+        timestamp x y z i j k w
+        Args:
+            path (str): orb-mono 估计的kf pose路径 /home/dlr/Project1/ORB_SLAM2_Enhanced/result/KeyFrameTrajectory.txt
+        """
+        firstgtpose = self.poses[0].cpu().numpy() # c2w
+        firstgtpose[:3, 1] *= -1
+        firstgtpose[:3, 2] *= -1 # 拿出gt首帧pose 来给prior做变换 注意已经恢复到原坐标系
+        estpose = np.loadtxt(path) # 本身是kf pose
+        n_est = estpose.shape[0]
+        print('load prior pose from {}, kf len: {}'.format(path, n_est))
+        self.prior_poses = {}
+        if self.prior_scale is not None: # 如果需要 先对prior pose 的平移尺度恢复
+            print('before 2 c2w, scale prior tum tq: {}'.format(self.prior_scale))
+            estpose[:, 1:4] *= self.prior_scale
+        dic_est = dict([ ( int(float(format(estpose[i, 0], '.1f'))*10), 
+                         estpose [i, 1:]) 
+                         for i in range(n_est) ]) # key 就是 frame id
+        inv_pose = None # 保存 原始prior pose 的首帧位姿
+        ew2gw = None # 记录prior 的世界系相对于gt 世界系的变换  使用的前提是 尺度已经对齐！
+        # 遍历字典 转变格式
+        for (key, value) in dic_est.items():
+            frameid = key # kf 的 frame id
+            c2w = np.array(TQtoSE3(value))
+            if inv_pose is None: # 首帧位姿归I 但是好像只有tum做了归一化处理 why
+                inv_pose = np.linalg.inv(c2w) #T0we
+                ew2gw = firstgtpose@inv_pose
+                # c2w = np.eye(4)
+                c2w = ew2gw@c2w
+            else:
+                # c2w = inv_pose@c2w # T0w Twi = T0i
+                c2w = ew2gw@c2w
+            c2w[:3, 1] *= -1
+            c2w[:3, 2] *= -1
+            c2w = torch.from_numpy(c2w).float()
+            self.prior_poses[frameid] = c2w # 直接用字典 保存 对齐并 转换世界系的 prior kf pose
+            
+
     
     # 也画出轨迹 想看看bound to do
     def plot_traj(self):

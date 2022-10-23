@@ -29,6 +29,8 @@ class NICE_SLAM():
         self.args = args
         self.nice = args.nice
         # 这些变量来自与yaml哪里
+        # 和 prior coarse geometry 有关的设置参数
+        self.use_prior = cfg['use_prior'] # 是否载入 est depth 作为 gt deptj
         self.guide_sample = cfg['guidesample']
         self.rgbonly = cfg['rgbonly']
         self.coarse = cfg['coarse']

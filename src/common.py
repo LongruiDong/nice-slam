@@ -3,6 +3,22 @@ import torch
 import torch.nn.functional as F
 # -*- coding:utf-8 -*-
 import traceback
+from mathutils import Matrix
+import mathutils
+
+def TQtoSE3(inputs):
+    """
+    x y z i j k w (tum)转为 SE3 matrix 
+    注意 tum四元数 要先转为 w i j k
+    """
+    t, quad1 = inputs[:3], inputs[3:]
+    quad = [quad1[3], quad1[0], quad1[1], quad1[2]]
+    R = mathutils.Quaternion(quad).to_matrix()
+    SE3 = np.eye(4)
+    SE3[0:3, 0:3] = np.array(R)
+    SE3[0:3,3] = t
+    SE3 = Matrix(SE3)
+    return SE3
 
 def as_intrinsics_matrix(intrinsics):
     """
@@ -93,6 +109,7 @@ def get_rays_from_uv(i, j, c2w, H, W, fx, fy, cx, cy, device):
 def select_uv(i, j, n, depth, color, device='cuda:0'):
     """
     Select n uv from dense uv. 他这里没按I-map那样采样啊。。 均匀分布来采样
+    depth 可能是 nan tensor
     # i和j其实就是 图像裁剪后区域每像素的 下标 (u,v)
     """
     i = i.reshape(-1)
@@ -137,23 +154,24 @@ def get_sample_uv(H0, H1, W0, W1, n, depth, color, device='cuda:0'):
     """
     Sample n uv coordinates from an image region H0..H1, W0..W1
     H0= edge_ H1=H-edge_ W0= edge_ W1=W-edge_ n 需要多少像素点参与优化 来自设置文件pixels:
+    depth 可能是 nan tensor
     """
-    dnn = depth.cpu().numpy().shape
-    dnnsum = dnn[0] + dnn[1]
-    try:
-        # print('[get_sample_uv1] 2/depth.shapesum: \t', 2/dnnsum)
-        x = 2/dnnsum
-    except Exception as e:
-        traceback.print_exc()
+    # dnn = depth.cpu().numpy().shape
+    # dnnsum = dnn[0] + dnn[1]
+    # try:
+    #     # print('[get_sample_uv1] 2/depth.shapesum: \t', 2/dnnsum)
+    #     x = 2/dnnsum
+    # except Exception as e:
+    #     traceback.print_exc()
     depth = depth[H0:H1, W0:W1]
     color = color[H0:H1, W0:W1] #裁剪后的区域 各减 2*edge (335, 1202,3)
-    dnn = depth.cpu().numpy().shape
-    dnnsum = dnn[0] + dnn[1]
-    try:
-        # print('[get_sample_uv2] 2/depth.shapesum: \t', 2/dnnsum)
-        x = 2/dnnsum
-    except Exception as e:
-        traceback.print_exc()
+    # dnn = depth.cpu().numpy().shape
+    # dnnsum = dnn[0] + dnn[1]
+    # try:
+    #     # print('[get_sample_uv2] 2/depth.shapesum: \t', 2/dnnsum)
+    #     x = 2/dnnsum
+    # except Exception as e:
+    #     traceback.print_exc()
     i, j = torch.meshgrid(torch.linspace( #目标图像区域 网格 list[20, 1221] list[20, 354] 
         W0, W1-1, W1-W0).to(device), torch.linspace(H0, H1-1, H1-H0).to(device))
     i = i.t()  # transpose (1202,335)
@@ -166,6 +184,7 @@ def get_samples(H0, H1, W0, W1, n, H, W, fx, fy, cx, cy, c2w, depth, color, devi
     """
     Get n rays from the image region H0..H1, W0..W1. 图像裁掉了边缘一些像素
     c2w is its camera pose and depth/color is the corresponding image tensor.
+    depth 可能是nan tensor
     (n,3) (n,3)  (n) (n,3)
     """
     i, j, sample_depth, sample_color = get_sample_uv( # 先采样n个像素 对应的下标 深度 颜色 这块不会有我呢提 和 Bound无关

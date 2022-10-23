@@ -27,6 +27,7 @@ class Tracker(object):
         self.sync_method = cfg['sync_method']
         self.rgbonly = slam.rgbonly
         self.guide_sample = slam.guide_sample
+        self.use_prior = slam.use_prior
         self.idx = slam.idx
         self.nice = slam.nice
         self.bound = slam.bound
@@ -167,19 +168,21 @@ class Tracker(object):
         else:
             pbar = tqdm(self.frame_loader)
 
-        for idx, gt_color, gt_depth, gt_c2w in pbar:
+        for idx, gt_color, gt_depth, gt_c2w, _ in pbar: # 
             if not self.verbose:
                 pbar.set_description(f"Tracking Frame {idx[0]}")
 
-            idx = idx[0]
+            idx = idx[0] # 
+            if type(idx) == torch.Tensor:
+               idx = idx.item() 
             gt_depth = gt_depth[0]
             gt_color = gt_color[0]
             gt_c2w = gt_c2w[0]
 
             if self.sync_method == 'strict':
                 # strictly mapping and then tracking
-                # initiate mapping every self.every_frame frames
-                if idx > 0 and (idx % self.every_frame == 1 or self.every_frame == 1):
+                # initiate mapping every self.every_frame frames 这里增加 对于kf都tracking 否则 mapping那边更是receive不到
+                if idx > 0 and (idx % self.every_frame == 1 or self.every_frame == 1 or ((idx-1) in self.frame_reader.prior_poses.keys())):
                     while self.mapping_idx[0] != idx-1:
                         time.sleep(0.1)
                     pre_c2w = self.estimate_c2w_list[idx-1].to(device)
@@ -196,12 +199,12 @@ class Tracker(object):
 
             if self.verbose:
                 print(Fore.MAGENTA)
-                print("Tracking Frame ",  idx.item())
+                print("Tracking Frame ",  idx)
                 print(Style.RESET_ALL)
 
             if idx == 0 or self.gt_camera: # gt_camera的含义？
                 c2w = gt_c2w
-                if not self.no_vis_on_first_frame:
+                if not self.no_vis_on_first_frame and (not torch.isnan(gt_depth).all().item()):
                     self.visualizer.vis(
                         idx, 0, gt_depth, gt_color, c2w, self.c, self.decoders,
                         selecti=self.slecti, selectj=self.slectj)

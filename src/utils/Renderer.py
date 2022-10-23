@@ -132,7 +132,7 @@ class Renderer(object):
                 gt_depth_surface = gt_none_zero.repeat(1, N_surface)
                 t_vals_surface = torch.linspace(
                     0., 1., steps=N_surface).double().to(device)
-                # emperical range 0.05*depth
+                # emperical range 0.05*depth # 这个超参数本来就是经验性的 当prior depth 可否放松一些
                 z_vals_surface_depth_none_zero = 0.95*gt_depth_surface * \
                     (1.-t_vals_surface) + 1.05 * \
                     gt_depth_surface * (t_vals_surface)
@@ -261,7 +261,7 @@ class Renderer(object):
     # this is only for imap*
     def regulation(self, c, decoders, rays_d, rays_o, gt_depth, device, stage='color'):
         """
-on that discourage any geometry from the camera center to 0.85*depth.        Regulati
+        Regulation that discourage any geometry from the camera center to 0.85*depth.        
         For imap, the geometry will not be as good if this loss is not added.
 
         Args:

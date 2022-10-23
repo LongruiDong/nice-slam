@@ -1,6 +1,8 @@
 coarse: True #是否优化coarse level geometry 地图
 sync_method: strict
 scale: 1
+prior_scale: 1 # 用于prior 的pose 和 depth map 的尺度和 Gt 的对齐因子 这里default 1
+use_prior: False # 是否载入作为先验的 pose 和depth
 verbose: True
 occupancy: True
 low_gpu_mem: True

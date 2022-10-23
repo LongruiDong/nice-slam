@@ -1,7 +1,11 @@
 dataset: 'replica'
+scale: 1
+prior_scale: 1 # 用于prior 的pose 和 depth map 的尺度和 Gt 的对齐因子 这里default 1
+use_prior: True # 是否载入作为先验的 pose 和depth
 coarse: False # False True
 rgbonly: True # 增加选项 是否为单目模式 即无depth loss
-guidesample: False # 增加选项 测试深度引导对在线的作用 False 默认  
+guidesample: False # 增加选项 测试深度引导对在线的作用 False 默认 
+verbose: True 
 meshing:
   eval_rec: True
 tracking:

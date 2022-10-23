@@ -530,33 +530,8 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
     print('est pose: ', estpose.shape)
     dic_gt = dict([(gtpose[i, 0], gtpose[i, 1:]) for i in range(n_gt)])
     dic_est = dict([(float(format(estpose[i, 0], '.1f')), estpose[i, 1:]) for i in range(n_est)])
-    # matches = associate(dic_gt, dic_est)
-    # if len(matches) < 2:
-    #     raise ValueError(
-    #         "Couldn't find matching timestamp pairs between groundtruth and estimated trajectory! \
-    #         Did you choose the correct sequence?")
-    # first_xyz = np.matrix(
-    #     [[float(value) for value in dic_gt[a][0:3]] for a, b in matches]).transpose()
-    # second_xyz = np.matrix([[float(value) for value in dic_est[b][0:3]] for a, b in matches]).transpose()
     
-    # # 对齐 得到尺度变换
-    # rot, trans, trans_error, s = align(first_xyz, second_xyz) # RT把前者 变为后者, s 把后者变前者
-    # if True:
-    #     print("compared_pose_pairs %d pairs" % (len(trans_error)))
 
-    #     print("absolute_translational_error.rmse %f m" % np.sqrt(
-    #         np.dot(trans_error, trans_error) / len(trans_error)))
-    #     print("absolute_translational_error.mean %f m" %
-    #           np.mean(trans_error))
-    #     print("absolute_translational_error.median %f m" %
-    #           np.median(trans_error))
-    #     print("absolute_translational_error.std %f m" % np.std(trans_error))
-    #     print("absolute_translational_error.min %f m" % np.min(trans_error))
-    #     print("absolute_translational_error.max %f m" % np.max(trans_error))
-    # scale = float(s) # float(1./s)
-    # print('est map should x {}'.format(scale))
-    
-    
     # 投影的话还是要有每帧位姿 再跑前面的orbslam 插值 不准 就先只用kf的吧
     kf_orb_pose = copy.deepcopy(estpose)
     print('load orb-mono pose(tum): {} \n size: {}, {}'.format(kftrajfile, kf_orb_pose.shape[0], kf_orb_pose.shape[1]))

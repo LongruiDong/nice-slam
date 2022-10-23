@@ -27,6 +27,7 @@ class Mapper(object):
         self.coarse_mapper = coarse_mapper #coarse level的优化
         self.rgbonly = slam.rgbonly
         self.guide_sample = slam.guide_sample
+        self.use_prior = slam.use_prior
         self.idx = slam.idx
         self.nice = slam.nice
         self.c = slam.shared_c
@@ -266,7 +267,7 @@ class Mapper(object):
             if self.keyframe_selection_method == 'global': # imap 使用5个kf
                 num = self.mapping_window_size-2
                 optimize_frame = random_select(len(self.keyframe_dict)-1, num) # 按照它论文 这里不应该采用一定的选择策略？
-            elif self.keyframe_selection_method == 'overlap': #按共视区域
+            elif self.keyframe_selection_method == 'overlap': #按共视区域 注意这里也涉及深度  后续可以用2d-3d对应来找overlap的kf
                 num = self.mapping_window_size-2 # K-2
                 optimize_frame = self.keyframe_selection_overlap(
                     cur_gt_color, cur_gt_depth, cur_c2w, keyframe_dict[:-1], num)
@@ -308,13 +309,16 @@ class Mapper(object):
         middle_grid_para = []
         fine_grid_para = []
         color_grid_para = []
-        gt_depth_np = cur_gt_depth.cpu().numpy()
+        if not torch.isnan(cur_gt_depth).all().item(): # cur_gt_depth is not None:
+            gt_depth_np = cur_gt_depth.cpu().numpy()
+        else:
+            gt_depth_np = None
         if self.nice:
             if self.frustum_feature_selection:
                 masked_c_grad = {}
                 mask_c2w = cur_c2w
             for key, val in c.items():
-                if not self.frustum_feature_selection:
+                if not self.frustum_feature_selection or (gt_depth_np is None):
                     val = Variable(val.to(device), requires_grad=True)
                     c[key] = val
                     if key == 'grid_coarse':
@@ -326,7 +330,7 @@ class Mapper(object):
                     elif key == 'grid_color':
                         color_grid_para.append(val)
 
-                else:
+                elif gt_depth_np is not None:
                     mask = self.get_mask_from_c2w(
                         mask_c2w, key, val.shape[2:], gt_depth_np)
                     mask = torch.from_numpy(mask).permute(2, 1, 0).unsqueeze(
@@ -441,7 +445,7 @@ class Mapper(object):
                 if self.BA:
                     optimizer.param_groups[1]['lr'] = self.BA_cam_lr
 
-            if (not (idx == 0 and self.no_vis_on_first_frame)) and ('Demo' not in self.output):
+            if (not (idx == 0 and self.no_vis_on_first_frame)) and ('Demo' not in self.output) and (not torch.isnan(cur_gt_depth).all().item()):
                 # if joint_iter>0: #非首次迭代 采样点才非空
                 #     self.visualizer.vis( #每一次优化前去可视化rendered的结果
                 #         idx, joint_iter, cur_gt_depth, cur_gt_color, cur_c2w, self.c, self.decoders,
@@ -460,7 +464,7 @@ class Mapper(object):
 
             camera_tensor_id = 0
             for frame in optimize_frame:
-                if frame != -1:
+                if frame != -1: # 最下面目前 还可能有 没有 prior depth 的kf构成
                     gt_depth = keyframe_dict[frame]['depth'].to(device)
                     gt_color = keyframe_dict[frame]['color'].to(device)
                     if self.BA and frame != oldest_frame:
@@ -483,8 +487,9 @@ class Mapper(object):
                     else:
                         c2w = cur_c2w
                 # if frame == -1:#  idx -1 就是指当前帧
+                # 上面得到的gt_depth 可能是 nan
                     
-                # 每次batch iter 就要随机采样一次
+                # 每次batch iter 就要随机采样一次 batch_gt_depth 里面可能有nan
                 batch_rays_o, batch_rays_d, batch_gt_depth, batch_gt_color, sti, stj = get_samples(
                     0, H, 0, W, pixs_per_image, H, W, fx, fy, cx, cy, c2w, gt_depth, gt_color, self.device)
                 if frame == -1: #记录当前帧 本次循环的采样点 #  idx -1 就是指当前帧
@@ -497,10 +502,10 @@ class Mapper(object):
 
             batch_rays_d = torch.cat(batch_rays_d_list) # 不是归一化的！
             batch_rays_o = torch.cat(batch_rays_o_list)
-            batch_gt_depth = torch.cat(batch_gt_depth_list) # 6000 类似于batchsize
+            batch_gt_depth = torch.cat(batch_gt_depth_list) # 6000 类似于batchsize batch_gt_depth 里面可能有nan
             batch_gt_color = torch.cat(batch_gt_color_list) # 6000,3
 
-            if self.nice:
+            if self.nice and (not torch.isnan(batch_gt_depth).all().item()):
                 # should pre-filter those out of bounding box depth value 还不涉及 ray上积分的bound
                 with torch.no_grad():
                     det_rays_o = batch_rays_o.clone().detach().unsqueeze(-1)  # (N, 3, 1)
@@ -517,12 +522,18 @@ class Mapper(object):
                 batch_rays_o = batch_rays_o[inside_mask]
                 batch_gt_depth = batch_gt_depth[inside_mask]
                 batch_gt_color = batch_gt_color[inside_mask]
+            # batch_gt_depth 要么 全nan 要么正常
+            if torch.isnan(batch_gt_depth).all().item():
+                batch_gt_depth = None # 为了下面render 直接 去除表面引导的方便
             ret = self.renderer.render_batch_ray(c, self.decoders, batch_rays_d,
                                                  batch_rays_o, device, self.stage,
                                                  gt_depth=None if ( self.coarse_mapper or (not self.guide_sample) ) else batch_gt_depth) # 突然意识到之前这里 还是会根据gt depth 采样ray上表面附近的
             depth, uncertainty, color = ret
             # 和 tracker中的改动一致
-            depth_mask = (batch_gt_depth > 0)# & (batch_gt_depth < 600) #只考虑mask内的像素参与误差 # 对于outdoor 加上 不属于无穷远 vkitti 655.35
+            if batch_gt_depth is not None:
+                depth_mask = (batch_gt_depth > 0)# & (batch_gt_depth < 600) #只考虑mask内的像素参与误差 # 对于outdoor 加上 不属于无穷远 vkitti 655.35
+            else: # 就都用 其实目前rgb only 时 depth_mask没用上
+                depth_mask = torch.full(size=batch_gt_depth.shape, fill_value=True)
             # 这里测试 loss 改为 color only loss
             if self.rgbonly:
                 loss = torch.tensor(0.0, requires_grad=True).to(device)  # 其他阶段都没color 下面还要加
@@ -542,7 +553,7 @@ class Mapper(object):
 
             # for imap*, it uses volume density
             regulation = (not self.occupancy)
-            if regulation:
+            if regulation and batch_gt_depth is not None: # 增加条件
                 point_sigma = self.renderer.regulation(
                     c, self.decoders, batch_rays_d, batch_rays_o, batch_gt_depth, device, self.stage)
                 regulation_loss = torch.abs(point_sigma).sum()
@@ -594,7 +605,7 @@ class Mapper(object):
 
     def run(self):
         cfg = self.cfg
-        idx, gt_color, gt_depth, gt_c2w = self.frame_reader[0]
+        idx, gt_color, gt_depth, gt_c2w, _ = self.frame_reader[0]
 
         self.estimate_c2w_list[0] = gt_c2w.cpu()
         init = True # 初始 需要做初始化
@@ -602,10 +613,12 @@ class Mapper(object):
         while (1):
             while True:
                 idx = self.idx[0].clone()
+                if type(idx) == torch.Tensor:
+                    idx = idx.item()
                 if idx == self.n_img-1: #最后一帧也会优化的
                     break
-                if self.sync_method == 'strict': #输入参数每隔x帧进行mapping
-                    if idx % self.every_frame == 0 and idx != prev_idx:
+                if self.sync_method == 'strict': #输入参数每隔x帧进行mapping 增加 若是orb kf 也开启  之后可以再是 只有在kf map
+                    if ( idx % self.every_frame == 0 or (idx in self.frame_reader.prior_poses.keys()) ) and idx != prev_idx:
                         break #否则就一直在里面循环
 
                 elif self.sync_method == 'loose':
@@ -619,10 +632,10 @@ class Mapper(object):
             if self.verbose:
                 print(Fore.GREEN)
                 prefix = 'Coarse ' if self.coarse_mapper else ''
-                print(prefix+"Mapping Frame ", idx.item())
+                print(prefix+"Mapping Frame ", idx)
                 print(Style.RESET_ALL)
 
-            _, gt_color, gt_depth, gt_c2w = self.frame_reader[idx]
+            _, gt_color, gt_depth, gt_c2w, _ = self.frame_reader[idx]
 
             if not init: #初始化已结束
                 lr_factor = cfg['mapping']['lr_factor'] #非初始化 
@@ -666,8 +679,8 @@ class Mapper(object):
                     self.estimate_c2w_list[idx] = cur_c2w
 
                 # add new frame to keyframe set 这里也不是靠information gain来生成kf啊
-                if outer_joint_iter == outer_joint_iters-1:
-                    if (idx % self.keyframe_every == 0 or (idx == self.n_img-2)) \
+                if outer_joint_iter == outer_joint_iters-1: # idx % self.keyframe_every == 0 or 删去此条件 为了kf基本等同orb 的kf
+                    if ((idx == self.n_img-2) or (not torch.isnan(gt_depth).all().item()) ) \
                             and (idx not in self.keyframe_list):
                         self.keyframe_list.append(idx) #关键帧列表 以 frame_id组成
                         self.keyframe_dict.append({'gt_c2w': gt_c2w.cpu(), 'idx': idx, 'color': gt_color.cpu(
