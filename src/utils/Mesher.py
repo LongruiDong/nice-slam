@@ -507,7 +507,7 @@ class Mesher(object):
                         if comp.area > self.remove_small_geometry_threshold * self.scale * self.scale: #只有大于阈值才保留
                             new_components.append(comp)
                     mesh = trimesh.util.concatenate(new_components)
-                vertices = mesh.vertices
+                vertices = mesh.vertices # 偶尔会有报错
                 faces = mesh.faces
 
             if color:

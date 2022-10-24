@@ -25,7 +25,7 @@ class Tracker(object):
         self.coarse = cfg['coarse']
         self.occupancy = cfg['occupancy']
         self.sync_method = cfg['sync_method']
-
+        self.rgbonly = slam.rgbonly
         self.idx = slam.idx
         self.nice = slam.nice
         self.bound = slam.bound
@@ -72,7 +72,7 @@ class Tracker(object):
                                      renderer=self.renderer, verbose=self.verbose, depth_trunc=cfg['cam']['depth_trunc'], device=self.device)
         self.H, self.W, self.fx, self.fy, self.cx, self.cy = slam.H, slam.W, slam.fx, slam.fy, slam.cx, slam.cy
 
-    def optimize_cam_in_batch(self, camera_tensor, gt_color, gt_depth, batch_size, optimizer):
+    def optimize_cam_in_batch(self, camera_tensor, gt_color, gt_depth, batch_size, optimizer, opt_iter):
         """
         Do one iteration of camera iteration. Sample pixels, render depth/color, calculate loss and backpropagation.
 
@@ -113,7 +113,7 @@ class Tracker(object):
             batch_gt_color = batch_gt_color[inside_mask]
 
         ret = self.renderer.render_batch_ray(
-            self.c, self.decoders, batch_rays_d, batch_rays_o,  self.device, stage='color',  gt_depth=batch_gt_depth)
+            self.c, self.decoders, batch_rays_d, batch_rays_o,  self.device, stage='color', opt_iter=opt_iter, gt_depth=batch_gt_depth)
         depth, uncertainty, color, _ = ret
 
         uncertainty = uncertainty.detach()
@@ -123,13 +123,21 @@ class Tracker(object):
         else: #只考虑mask内的像素参与误差 # 对于outdoor 加上 不属于无穷远 vkitti 655.35
             mask = (batch_gt_depth > 0) # & (batch_gt_depth < 600)
         # 这里测试 loss 改为 color only loss
-        loss = ( torch.mean(torch.abs(batch_gt_color - color), dim=1) / # torch.abs(batch_gt_depth-depth) torch.mean(torch.abs(batch_gt_color - color), dim=1)
+        if self.rgbonly:
+            loss = torch.tensor(0.0, requires_grad=True).to(device) #下面要加
+            # loss = ( torch.mean(torch.abs(batch_gt_color - color), dim=1) / # torch.abs(batch_gt_depth-depth) torch.mean(torch.abs(batch_gt_color - color), dim=1)
+            #         torch.sqrt(uncertainty+1e-10))[mask].sum()
+        else:   # 否则还是原来 rgb-d
+            loss = (torch.abs(batch_gt_depth-depth) /
                 torch.sqrt(uncertainty+1e-10))[mask].sum()
 
         if self.use_color_in_tracking:
             color_loss = torch.abs(
                 batch_gt_color - color)[mask].sum()
-            loss += self.w_color_loss*color_loss
+            if self.rgbonly:
+                loss += color_loss
+            else:
+                loss += self.w_color_loss*color_loss
 
         loss.backward()
         optimizer.step()
@@ -241,7 +249,7 @@ class Tracker(object):
                         selecti=self.slecti, selectj=self.slectj)
 
                     loss = self.optimize_cam_in_batch( # frame 25(375,1242)
-                        camera_tensor, gt_color, gt_depth, self.tracking_pixels, optimizer_camera)
+                        camera_tensor, gt_color, gt_depth, self.tracking_pixels, optimizer_camera, cam_iter)
 
                     if cam_iter == 0:
                         initial_loss = loss

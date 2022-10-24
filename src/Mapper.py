@@ -27,7 +27,7 @@ class Mapper(object):
         self.cfg = cfg
         self.args = args
         self.coarse_mapper = coarse_mapper #coarse level的优化
-
+        self.rgbonly = slam.rgbonly
         self.idx = slam.idx
         self.nice = slam.nice
         self.c = slam.shared_c
@@ -293,6 +293,14 @@ class Mapper(object):
                     tmp_est_c2w = cur_c2w
                 keyframes_info.append(
                     {'idx': frame_idx, 'gt_c2w': tmp_gt_c2w, 'est_c2w': tmp_est_c2w})
+             # 直接打印得了
+            print('current frame {:d}, frame in opt window: '.format(idx))
+            for il, kdic in enumerate(keyframes_info):
+                fidx = kdic['idx']
+                if il>0:
+                    print(', ',end="")
+                print('{:d}'.format(fidx),end="")
+            print(' ')
             self.selected_keyframes[idx] = keyframes_info
 
         pixs_per_image = self.mapping_pixels//len(optimize_frame) # 每个kf的像素数
@@ -516,8 +524,8 @@ class Mapper(object):
                 batch_gt_depth = batch_gt_depth[inside_mask]
                 batch_gt_color = batch_gt_color[inside_mask]
             ret = self.renderer.render_batch_ray(c, self.decoders, batch_rays_d,
-                                                 batch_rays_o, device, self.stage,
-                                                 gt_depth=None if self.coarse_mapper else batch_gt_depth) # 突然意识到之前这里 还是会根据gt depth 采样ray上表面附近的
+                                                 batch_rays_o, device, self.stage, opt_iter=joint_iter,
+                                                 gt_depth=None) # 突然意识到之前这里 还是会根据gt depth 采样ray上表面附近的 但设置N_surf=0   if self.coarse_mapper else batch_gt_depth
             depth, uncertainty, color, _ = ret
             # 拿出 随机生成的ray 得到的一些patch
             # # rays_random = ret_dict['rays_random'] # rays class (n_p*p_s=batch_size_random,3)
@@ -532,7 +540,7 @@ class Mapper(object):
             batch_random_rays_d = torch.from_numpy(batch_random_rays_d_np).to(device) # 转tensor
             batch_random_rays_o = torch.from_numpy(batch_random_rays_o_np).to(device)
             ret_random = self.renderer.render_batch_ray(c, self.decoders, batch_random_rays_d, batch_random_rays_o,
-                                                        device, self.stage) # 这里当然没有gt depth了
+                                                        device, self.stage, opt_iter=joint_iter) # 这里当然没有gt depth了
             depth_random, uncert_rand, color_random, regacc = ret_random # random ray 下render出的深度等 (batchsize)
             # reshape到depth patch 上面的acc竟然都是1？ 在第0步
             ps = cfg['mapping']['patch_size']
@@ -544,11 +552,20 @@ class Mapper(object):
             # 和 tracker中的改动一致
             depth_mask = (batch_gt_depth > 0)# & (batch_gt_depth < 600) #只考虑mask内的像素参与误差 # 对于outdoor 加上 不属于无穷远 vkitti 655.35
             # 这里测试 loss 改为 color only loss
-            loss = torch.abs(
-                batch_gt_color[depth_mask]-color[depth_mask]).sum() # batch_gt_depth[depth_mask]-depth[depth_mask] batch_gt_color[depth_mask]-color[depth_mask]
-            if ((not self.nice) or (self.stage == 'color')):
+            if self.rgbonly:
+                loss = torch.tensor(0.0, requires_grad=True).to(device)  # 其他阶段都没color 下面还要加
+                self.w_color_loss = 1.
+                # loss = torch.abs(
+                #     batch_gt_color[depth_mask]-color[depth_mask]).sum() # batch_gt_depth[depth_mask]-depth[depth_mask] batch_gt_color[depth_mask]-color[depth_mask]
+            else: # 否则还是原来 rgb-d
+                loss = torch.abs(
+                    batch_gt_depth[depth_mask]-depth[depth_mask]).sum()
+            if ((not self.nice) or (self.stage == 'color')): # 才发现 其他stage color是0 所以之前 rgb only 时应该 都改为color stage,反正其他stage color loss是错的
                 color_loss = torch.abs(batch_gt_color - color).sum()
                 weighted_color_loss = self.w_color_loss*color_loss
+                if self.rgbonly:
+                    self.w_color_loss = 1.
+                    weighted_color_loss = color_loss
                 loss += weighted_color_loss
 
             # for imap*, it uses volume density
@@ -717,7 +734,7 @@ class Mapper(object):
                         or idx == self.n_img-1:
                     self.logger.log(idx, self.keyframe_dict, self.keyframe_list,
                                     selected_keyframes=self.selected_keyframes
-                                    if self.save_selected_keyframes_info else None)
+                                    if False else None) # self.save_selected_keyframes_info
 
                 self.mapping_idx[0] = idx
                 self.mapping_cnt[0] += 1

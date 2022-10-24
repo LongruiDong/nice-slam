@@ -1,6 +1,8 @@
 dataset: 'replica'
 meshing:
   eval_rec: True
+coarse: False # False True
+rgbonly: True # 增加选项 是否为单目模式 即无depth loss
 tracking:
   vis_freq: 50
   vis_inside_freq: 25
@@ -25,7 +27,7 @@ mapping:
   # regnerf copy from internal/configs.py, configs/llff3.gin
   n_random_poses: 200 # (How many random poses to use) sparse view之外 随机生成的view的数量
   patch_size: 8 # Patch size for random pose losses 默认8*8的块
-  batch_size_random: 2048 # The number of rays/pixels in each batch. 4096|  对于生成的视角 单独控制bs 1024 2048
+  batch_size_random: 1024 # The number of rays/pixels in each batch. 4096|  对于生成的视角 单独控制bs 1024 2048
   batching_random: 'all_images' # Batch composiiton for random views.
   load_random_rays: True # Whether to load random rays. 这些视角开作为正则约束
   anneal_nearfar: False # Whether to anneal near/far planes. 暂时不开
@@ -42,8 +44,19 @@ mapping:
   random_scales_init: 0  # Init scale for random patch sampling.
   depth_tvnorm_decay: True # Whether to decay tvnorm.
   depth_tvnorm_maxstep: 25440 # Max step for depth tv norm decay. regnerf 里step是总迭代次数 我这里decay策略 得改大一些 512 | 2048   25440=399*60+1500
-  depth_tvnorm_loss_mult_start: 4e3 # Start loss weight for tv depth. 400
-  depth_tvnorm_loss_mult_end: 10 # Start loss weight for tv depth. 0.1
+  depth_tvnorm_loss_mult_start: 4e6 # Start loss weight for tv depth. 400
+  depth_tvnorm_loss_mult_end: 100 # Start loss weight for tv depth. 0.1
+  middle_iter_ratio: -1. # 0.4 # rgbonly时 只有color stage
+  fine_iter_ratio: -1. # 0.6
+  save_selected_keyframes_info: True
+rendering:
+  N_samples: 32 #N_strat
+  N_surface: 0 #在深度周围 16| 0 
+  N_importance: 32 #为啥是0 nerf里是有这一步 hirecial 采样吧 12(imap*) 16(总数和原始保持一致) 32
+  lindisp: False
+  perturb: 0.0 
+data:
+  endnum: -1 # 实际那前#帧 若为-1 则默认全部
 cam:
   H: 680
   W: 1200

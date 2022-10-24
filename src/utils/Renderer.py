@@ -17,6 +17,10 @@ class Renderer(object):
         self.occupancy = cfg['occupancy']
         self.nice = slam.nice
         self.bound = slam.bound
+        self.anneal_flag = cfg['mapping']['anneal_nearfar'] # 是否进行 退火
+        self.anneal_nearfar_steps = cfg['mapping']['anneal_nearfar_steps'] # from regnerf
+        self.anneal_nearfar_perc = cfg['mapping']['anneal_nearfar_perc']
+        self.anneal_mid_perc = cfg['mapping']['anneal_mid_perc']
 
         self.H, self.W, self.fx, self.fy, self.cx, self.cy = slam.H, slam.W, slam.fx, slam.fy, slam.cx, slam.cy
 
@@ -60,9 +64,28 @@ class Renderer(object):
         ret = torch.cat(rets, dim=0)
         return ret
 
-    def render_batch_ray(self, c, decoders, rays_d, rays_o, device, stage, gt_depth=None):
+    def anneal_nearfar(self, it, near_final, far_final,
+                   n_steps=512, init_perc=0.0001, mid_perc=1.0):
+        """Anneals near and far plane.
+        copy from regnerf datasets.py anneal_nearfar()
+        注意 原本 near_final far_final 都是标量
+        但在nice-slam 里 两者都是1D tensor
         """
-        Render color, depth and uncertainty of a batch of rays. imap 和 nice-slam公共的代码 在query mlp 时会区分开
+        mid = near_final + mid_perc * (far_final - near_final)
+
+        near_init = mid + init_perc * (near_final - mid)
+        far_init = mid + init_perc * (far_final - mid)
+
+        weight = min(it * 1.0 / n_steps, 1.0) # 每一step的值
+
+        near_i = near_init + weight * (near_final - near_init)
+        far_i = far_init + weight * (far_final - far_init)
+        
+        return near_i, far_i
+    
+    def render_batch_ray(self, c, decoders, rays_d, rays_o, device, stage, opt_iter=None, gt_depth=None): # 增加anneal near far 参数 from regnerf
+        """
+        Render color, depth and uncertainty of a batch of rays. imap 和 nice-slam公共的代码 在query mlp 时会区分开  n_steps=512, init_perc=0.0001, mid_perc=1.0
 
         Args:
             c (dict): feature grids.
@@ -71,6 +94,7 @@ class Renderer(object):
             rays_o (tensor, N*3): rays origin.
             device (str): device name to compute on.
             stage (str): query stage.
+            opt_iter (int): 当前mapping 的迭代次数 增加的参数 用于 anneal_nearfar
             gt_depth (tensor, optional): sensor depth image. Defaults to None.
 
         Returns:
@@ -153,10 +177,14 @@ class Renderer(object):
         t_vals = torch.linspace(0., 1., steps=N_samples, device=device) # [0,1] 等距采样N_samp个点
 
         # 有了初步的near far 后 可以选择是否退火 to do
-        if not self.lindisp: #默认false
-            z_vals = near * (1.-t_vals) + far * (t_vals)
+        if (self.anneal_flag and (opt_iter is not None) ):
+            near_i, far_i = self.anneal_nearfar(opt_iter, near, far, self.anneal_nearfar_steps, self.anneal_nearfar_perc, self.anneal_mid_perc)
         else:
-            z_vals = 1./(1./near * (1.-t_vals) + 1./far * (t_vals))
+            near_i, far_i = near, far
+        if not self.lindisp: #默认false
+            z_vals = near_i * (1.-t_vals) + far_i * (t_vals)
+        else:
+            z_vals = 1./(1./near_i * (1.-t_vals) + 1./far_i * (t_vals))
 
         if self.perturb > 0.:
             # get intervals between samples

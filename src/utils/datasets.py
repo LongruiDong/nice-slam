@@ -206,7 +206,11 @@ class BaseDataset(Dataset):
         # Find a reasonable 'focus depth' for this dataset as a weighted average
         # of near and far bounds in disparity space. 是比bound更大范围
         # 这里reolica bounds.near 是0 导致 focal 是0 改为取出 除0外的深度最小值 bounds.min()
-        close_depth, inf_depth = np.unique(np.sort(bounds[:,0]))[1] * .9, bounds.max() * 5. # 0.62 21.74
+        if np.unique(np.sort(bounds[:,0])).shape[0] == 1:
+            if np.unique(np.sort(bounds[:,0]))[0] <= 0.:
+                close_depth = 0.62
+        inf_depth = bounds.max() * 5
+        # close_depth, inf_depth = np.unique(np.sort(bounds[:,0]))[1] * .9, bounds.max() * 5. # 0.62 21.74
         dt = .75
         focal = 1 / (((1 - dt) / close_depth + dt / inf_depth)) # 4.5(对于 llff) 2.29(office0)
 
@@ -423,7 +427,10 @@ class Replica(BaseDataset):
         # dnet预测的不确定性路径
         self.stdv_paths = sorted(
                 glob.glob(f'{self.input_folder}/dstdpred/dstdv*.npy'))
-        self.n_img = len(self.color_paths) # 301 len(self.color_paths) #测试观测不够时 的fusion效果 1000
+        if cfg['data']['endnum']>0:
+            self.n_img = int(cfg['data']['endnum'])
+        else:
+            self.n_img = len(self.color_paths) # 301 len(self.color_paths) #测试观测不够时 的fusion效果 1000
         print('imagelen: {}'.format(self.n_img))
         self.load_poses(f'{self.input_folder}/traj.txt')
         # self.plot_traj()
