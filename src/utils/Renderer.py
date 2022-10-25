@@ -1,3 +1,4 @@
+from copy import copy
 import torch
 from src.common import get_rays, raw2outputs_nerf_color, sample_pdf
 # -*- coding:utf-8 -*-
@@ -12,6 +13,7 @@ class Renderer(object):
         self.N_samples = cfg['rendering']['N_samples']
         self.N_surface = cfg['rendering']['N_surface']
         self.N_importance = cfg['rendering']['N_importance'] #用处是啥
+        self.emperical_range = float(cfg['rendering']['emperical_range'])
 
         self.scale = cfg['scale']
         self.occupancy = cfg['occupancy']
@@ -60,6 +62,134 @@ class Renderer(object):
 
         ret = torch.cat(rets, dim=0)
         return ret
+
+    def render_batch_ray_tri(self, c, decoders, rays_d, rays_o, device, stage, gt_depth=None):
+        """
+        Render color, depth and uncertainty of a batch of rays. imap 和 nice-slam公共的代码 在query mlp 时会区分开
+        将原batch 分为 由深度 和无深度两类 采用不同的采样策略
+        Args:
+            c (dict): feature grids.
+            decoders (nn.module): decoders.
+            rays_d (tensor, N*3): rays direction.
+            rays_o (tensor, N*3): rays origin.
+            device (str): device name to compute on.
+            stage (str): query stage.
+            gt_depth (tensor, optional): sensor depth image. Defaults to None.
+
+        Returns:
+            depth (tensor): rendered depth.
+            uncertainty (tensor): rendered uncertainty.
+            color (tensor): rendered color.
+        """
+
+        N_samples = self.N_samples
+        N_surface = self.N_surface # 不同于 original nerf
+        N_importance = self.N_importance
+
+        N_rays = rays_o.shape[0]
+
+        if stage == 'coarse' or (not self.guide_sample):
+            gt_depth = None
+        if gt_depth is None:
+            N_surface = 0
+            near = 0.01 # 没有深度时 这表示 几乎从rays_O开始吧
+        else: # 还是会用深度 得到 near 相对有个先验 吧
+            gt_depth = gt_depth.reshape(-1, 1)
+            gt_none_zero_mask = gt_depth > 0
+            # 分为两部分
+            near_base = torch.full(size=gt_depth.shape, fill_value=0.1*torch.min(gt_depth)) # (N,1)
+            near_base[gt_none_zero_mask] = 0.8 * gt_depth[gt_none_zero_mask]
+            near = near_base.repeat(1, N_samples) # (N,sam#)
+
+        with torch.no_grad():
+            det_rays_o = rays_o.clone().detach().unsqueeze(-1)  # (N, 3, 1)
+            det_rays_d = rays_d.clone().detach().unsqueeze(-1)  # (N, 3, 1)
+            t = (self.bound.unsqueeze(0).to(device) -
+                 det_rays_o)/det_rays_d  # (N, 3, 2) 这段代码在mapping判断scaene是否在bound内 出现过
+            far_bb, _ = torch.min(torch.max(t, dim=2)[0], dim=1) # 是根据设置的cube bound 得到t- far
+            far_bb = far_bb.unsqueeze(-1) # (N, 1)
+            far_bb += 0.01
+
+        if gt_depth is not None: #gt_depth (4089,1) why 4089
+            # in case the bound is too large 每个ray的上界不至于太离谱的大 缩小sample空间
+            far = torch.clamp(far_bb, 0,  torch.max(gt_depth*1.2)) # (N, 1)
+        else:
+            far = far_bb
+        if N_surface > 0:
+            # gt_none_zero_mask = gt_depth > 0
+            gt_none_zero = gt_depth[gt_none_zero_mask] # (N)
+            gt_none_zero = gt_none_zero.unsqueeze(-1) # (N,1)
+            gt_depth_surface = gt_none_zero.repeat(1, N_surface)
+            t_vals_surface = torch.linspace(
+                0., 1., steps=N_surface).double().to(device)
+            # emperical range 0.05*depth # 这个超参数本来就是经验性的 改为 0.2 因为要在这里 多重采样
+            z_vals_surface_depth_none_zero = (1-self.emperical_range)*gt_depth_surface * \
+                (1.-t_vals_surface) + (1+self.emperical_range) * \
+                gt_depth_surface * (t_vals_surface) # (N, Surf) 每行都是给定的区间 在 当前depth
+            # z_vals_surface = torch.zeros(
+            #     gt_depth.shape[0], N_surface).to(device).double()
+            # gt_none_zero_mask = gt_none_zero_mask.squeeze(-1)
+            # z_vals_surface[gt_none_zero_mask,
+            #                 :] = z_vals_surface_depth_none_zero
+            # near_surface = 0.001
+            # far_surface = torch.max(gt_depth)
+            # z_vals_surface_depth_zero = near_surface * \
+            #     (1.-t_vals_surface) + far_surface * (t_vals_surface)
+            # z_vals_surface_depth_zero.unsqueeze(
+            #     0).repeat((~gt_none_zero_mask).sum(), 1)
+            # z_vals_surface[~gt_none_zero_mask,
+            #                 :] = z_vals_surface_depth_zero
+            # 由于要 分开两部分进行 采样并rendering 为了能自由设置各自部分采样数 所以分开render到结果 再在最终位置去拼接
+        t_vals = torch.linspace(0., 1., steps=N_samples, device=device) # [0,1] 等距采样N_samp个点
+
+        # 有了初步的near far 后 可以选择是否退火 to do
+        if not self.lindisp: #默认false
+            z_vals = near * (1.-t_vals) + far * (t_vals) # (N,N_sam)
+        else:
+            z_vals = 1./(1./near * (1.-t_vals) + 1./far * (t_vals))
+
+        if self.perturb > 0.:
+            # get intervals between samples
+            mids = .5 * (z_vals[..., 1:] + z_vals[..., :-1])
+            upper = torch.cat([mids, z_vals[..., -1:]], -1)
+            lower = torch.cat([z_vals[..., :1], mids], -1)
+            # stratified samples in those intervals
+            t_rand = torch.rand(z_vals.shape).to(device)
+            z_vals = lower + (upper - lower) * t_rand
+
+        if N_surface > 0:
+            z_vals, _ = torch.sort( # 每一行 把 各自采样拼起来 concat 并每行排序
+                torch.cat([z_vals, z_vals_surface.double()], -1), -1)
+
+        pts = rays_o[..., None, :] + rays_d[..., None, :] * \
+            z_vals[..., :, None]  # [N_rays, N_samples+N_surface, 3] z_val 才是实际的t
+        pointsf = pts.reshape(-1, 3)
+
+        raw = self.eval_points(pointsf, decoders, c, stage, device)
+        raw = raw.reshape(N_rays, N_samples+N_surface, -1)
+
+        depth, uncertainty, color, weights = raw2outputs_nerf_color(
+            raw, z_vals, rays_d, occupancy=self.occupancy, device=device)
+        # # 根据regnerf 由weights 进一步得到 rendering['acc'] 来用到 depth patch loss
+        # regacc = weights.sum(axis=-1) # (batchsize)
+        if N_importance > 0:
+            z_vals_mid = .5 * (z_vals[..., 1:] + z_vals[..., :-1])
+            z_samples = sample_pdf(
+                z_vals_mid, weights[..., 1:-1], N_importance, det=(self.perturb == 0.), device=device)
+            z_samples = z_samples.detach()
+            z_vals, _ = torch.sort(torch.cat([z_vals, z_samples], -1), -1)
+
+            pts = rays_o[..., None, :] + \
+                rays_d[..., None, :] * z_vals[..., :, None]
+            pts = pts.reshape(-1, 3)
+            raw = self.eval_points(pts, decoders, c, stage, device)
+            raw = raw.reshape(N_rays, N_samples+N_importance+N_surface, -1)
+
+            depth, uncertainty, color, weights = raw2outputs_nerf_color(
+                raw, z_vals, rays_d, occupancy=self.occupancy, device=device)
+            return depth, uncertainty, color
+
+        return depth, uncertainty, color
 
     def render_batch_ray(self, c, decoders, rays_d, rays_o, device, stage, gt_depth=None):
         """
@@ -133,8 +263,8 @@ class Renderer(object):
                 t_vals_surface = torch.linspace(
                     0., 1., steps=N_surface).double().to(device)
                 # emperical range 0.05*depth # 这个超参数本来就是经验性的 当prior depth 可否放松一些
-                z_vals_surface_depth_none_zero = 0.95*gt_depth_surface * \
-                    (1.-t_vals_surface) + 1.05 * \
+                z_vals_surface_depth_none_zero = (1-self.emperical_range)*gt_depth_surface * \
+                    (1.-t_vals_surface) + (1+self.emperical_range) * \
                     gt_depth_surface * (t_vals_surface)
                 z_vals_surface = torch.zeros(
                     gt_depth.shape[0], N_surface).to(device).double()

@@ -180,7 +180,7 @@ class Tracker(object):
             gt_c2w = gt_c2w[0]
 
             if self.sync_method == 'strict':
-                # strictly mapping and then tracking
+                # strictly mapping and then tracking idx % self.every_frame == 1 or self.every_frame == 1 or 去掉这些就是 只管orb kf
                 # initiate mapping every self.every_frame frames 这里增加 对于kf都tracking 否则 mapping那边更是receive不到
                 if idx > 0 and (idx % self.every_frame == 1 or self.every_frame == 1 or ((idx-1) in self.frame_reader.prior_poses.keys())):
                     while self.mapping_idx[0] != idx-1:

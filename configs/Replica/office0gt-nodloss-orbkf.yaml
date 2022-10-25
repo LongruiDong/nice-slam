@@ -4,7 +4,7 @@ scale: 1 # 原始scale参数 涉及给定的bound, 改变读入的depth
 prior_scale: 3. # 用于prior 的pose 和 depth map 的尺度和 Gt 的对齐因子 这里default 1 目前结果在外部算过 *3
 use_prior: True # 是否载入作为先验的 pose 和depth 这里暂时depth 作为gt_depth来用
 rgbonly: True # 增加选项 是否为单目模式 即无depth loss
-guidesample: True # 增加选项 测试深度引导对在线的作用
+guidesample: False # 增加选项 测试深度引导对在线的作用
 tracking:
   gt_camera: True #? True False
   vis_freq: 1
@@ -32,14 +32,14 @@ mapping:
   keyframe_selection_method: 'global' # 'overlap' 因为没有可靠的深度 改为
 rendering:
   N_samples: 32 #N_strat
-  N_surface: 32 #在深度周围 16| 0 
+  N_surface: 0 #在深度周围 16| 0 
   N_importance: 32 #为啥是0 nerf里是有这一步 hirecial 采样吧 12(imap*) 16(总数和原始保持一致) 32
   lindisp: False
   perturb: 0.0 
-  emperical_range: 0.05 # 增加参数控制 surface 的range 比例 0.05| 0.1 0.15
+  emperical_range: 0.1 # 增加参数控制 surface 的range 比例 0.05| 0.1 0.15
 data:
   input_folder: Datasets/Replica/office0
-  output: output/Replica_prior/office0gt-nodloss1-resize2-onlyorbkf # -woguide -it1k  ertune office0gt-nodloss1-woNsurf-Ni32-p1k-f4k-it4k-init
+  output: output/Replica_prior/office0gt-nodloss1-resize2-woguide-onlyorbkf # -woguide -it1k   office0gt-nodloss1-woNsurf-Ni32-p1k-f4k-it4k-init
   prior_folder: /home/dlr/Project1/ORB_SLAM2_Enhanced/result
 cam:
   depth_trunc: 8 # add for limit bound discard larger depth -1| 对于prior depth 得用

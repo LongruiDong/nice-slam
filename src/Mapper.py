@@ -617,7 +617,7 @@ class Mapper(object):
                     idx = idx.item()
                 if idx == self.n_img-1: #最后一帧也会优化的
                     break
-                if self.sync_method == 'strict': #输入参数每隔x帧进行mapping 增加 若是orb kf 也开启  之后可以再是 只有在kf map
+                if self.sync_method == 'strict': #输入参数每隔x帧进行mapping 增加 若是orb kf 也开启  之后可以再是 只有在kf map  idx % self.every_frame == 0 or 试验后还是得加上更好一些
                     if ( idx % self.every_frame == 0 or (idx in self.frame_reader.prior_poses.keys()) ) and idx != prev_idx:
                         break #否则就一直在里面循环
 
