@@ -9,7 +9,7 @@ office0_orb_mappts.txt 仅是所有3d点坐标 (验证过各文件 一致 除了
 并估计有效区域的depth 保存并可视化
 
 尺度问题 放在nice-slam 里的scale 参数得了，那这里就需要用位姿估计尺度了
-
+也用来保存某几帧的结果，放到pipeline里面了
 subdiv https://zhuanlan.zhihu.com/p/340510482
 """
 
@@ -237,7 +237,7 @@ def rect_contains(rect,point):
 
 # Draw a point
 def draw_point(img,p,color):
-    cv2.circle(img,p,2,color) # 2 5
+    cv2.circle(img,p,5,color) # 2 5
 
 #Draw delaunay triangles
 def draw_delaunay(img,trangleList,delaunay_color):
@@ -552,12 +552,12 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
         # idx = idx.item()
         if (not idx in dic_est.keys()):
             continue # 非kf 暂时不投影
-        # if idx != 813: # 813 > 0
-        #     continue # break
+        if idx != 813: # 813 > 0
+            continue # break
         # if idx == 0: # 813 > 0
         #     continue # break
-        # if idx > 45: # 813 > 0
-        #     break # break
+        if idx > 813: # 813 > 0 45
+            break # break
         rgbpath = frame_reader.color_paths[idx]
         color_data = cv2.imread(rgbpath) # h,w,3 unit8
         print('process frame {}'.format(rgbpath))
@@ -589,14 +589,14 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
 
         #Draw points
         for p in np.around(kpts_wdepth).astype(np.int32): #.astype(np.int32):
-            draw_point(color_data,p,(0,0,255))
+            draw_point(color_data,p,(255,0,0))
         win_delaunary = "%04d-delaunay triangulation" % idx
         #Show results
         # cv2.imshow(win_delaunary,color_data)
         # cv2.waitKey(0) # 注意 光标在窗口上时 按空格键 才能正常退出
         # save img dt kpt(只画 kpt)
-        outvisfile = os.path.join('triangulation', "dt%04d.jpg" % idx)
-        
+        outvisfile = os.path.join('tridebug1', "kpt%04d.jpg" % idx)
+        cv2.imwrite(outvisfile, cv2.cvtColor(color_data, cv2.COLOR_BGR2RGB))
         
         # 估计粗糙的深度图 to do
         est_depth = np.zeros((size[0], size[1])) # 初始深度全0
@@ -606,6 +606,7 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
         # draw_delaunay(color_data,trangleList,(255,255,255))
         tri_flag = np.ones(trangleList.shape[0]) # 记录 哪些三角面是有效的
         # 遍历每个像素
+        curr_pcd = []
         for u in range(size[1]):
             for v in range(size[0]):
                 # if (u != 538 or v != 87) and (u != 68 or v != 222):
@@ -617,7 +618,7 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
 
                 qt = [u, v]
                 ret = locate_triangle(np.array(qt), trangleList) # 对于在顶点上的判断有错误
-                if ret[0] < 0 and ret[0] != -2:
+                if ret[0] < 0 and ret[0] != -2: # ret[0] < 0 and 
                     continue
                 
                 if ret[0] == -2:
@@ -626,6 +627,7 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
                         print('ERROR. frame {}, qt: {}, {}'.format(idx, u, v))
                         assert False
                     qmapt = kfarr1[kpidxq, 4:7]
+                    curr_pcd += [qmapt]
                     if kfarr1[kpidxq, 3] < 0:
                         print('ERROR') # 按道理前面三角形顶点已经过滤过了 为何这里还有
                         assert False
@@ -663,7 +665,7 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
                     qt = np.array(qt) # (3,)
                     ray_dir = np.matmul(invK, qt) # 注意这里是 cam 坐标系 得转换到世界系
                     ray_dir_w = np.matmul(R_c2w, ray_dir)
-                    ray_dirwunit = ray_dir_w / np.linalg.norm(ray_dir_w)
+                    ray_dirwunit = ray_dir_w / np.linalg.norm(ray_dir_w) # / np.linalg.norm(ray_dir_w) 测试不是单位方向
                     plane_norm = np.cross(mapt1-mapt2, mapt1-mapt3) # 在这里出现nan了 是因为此三角形 2d上很近 面积很小 3d 上有两个点很接近
                     # debug = (np.linalg.norm(plane_norm)==np.linalg.norm(plane_norm)) # (True in np.isnan(plane_norm))
                     
@@ -686,7 +688,7 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
                 qmapt_h = np.concatenate([qmapt, np.array([1])], 0) # (4,)
                 qmapt_c = np.matmul(kf_w2c, qmapt_h)[:3] # (3,)
                 dd = qmapt_c[2]
-                if dd < 0 or dd > 9: # 10 9
+                if dd < 0 or dd > 1.5: # 10 9 2.5(因为这本来就是尺度变小近3倍)
                     if ( True ): # idx <= 45
                         print('query is kpt: {}, invalid depth: {}'.format( (ret[0] == -2), dd))
                     continue
@@ -708,26 +710,50 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
                 # 对深度赋值  值会有问题
                 est_depth[v, u] = qmapt_c[2]
         
+        curr_pcd = np.stack(curr_pcd, 0) # (n,3)
+        # 转为点云pcd保存
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(curr_pcd[:, :3]) # 相机位置的点云
+        pcd.normals = o3d.utility.Vector3dVector(curr_pcd[:, :3] / np.linalg.norm(curr_pcd[:, :3], axis=-1, keepdims=True)) # 每个位置点到原点的距离  每个位置单位向量
+        o3d.io.write_point_cloud(os.path.join('tridebug1', "pts%04d.ply" % idx), pcd)
         #Draw delaunary triangles 再用绿色 画出保留下来的
         draw_delaunay(color_data,trangleList[tri_flag>0],(0,255,0))
-        draw_delaunay(color_data,trangleList[tri_flag<0],(255,255,255)) # 再画出白色的边 表示 被舍弃的
+        # draw_delaunay(color_data,trangleList[tri_flag<0],(255,255,255)) # 再画出白色的边 表示 被舍弃的
         # 对当前估计的深度图 可视化 可视化有点问题
-        est_depth_vis = est_depth/np.max(est_depth)*255
-        est_depth_vis = np.clip(est_depth_vis, 0, 255).astype(np.uint8)
-        est_depth_vis = cv2.applyColorMap(est_depth_vis, cv2.COLORMAP_JET)
+        fig, axs = plt.subplots(1, 1)
+        fig.tight_layout()
+        max_depth = np.max(est_depth)
+        axs.imshow(est_depth, cmap="plasma",
+                   vmin=0, vmax=2.5)
+        # axs.set_title('coarse depth')
+        axs.set_xticks([])
+        axs.set_yticks([])
+        plt.savefig(os.path.join('tridebug1', "pltcd%04d.png" % idx), dpi = 200)
+        plt.show()
+        # est_depth_vis = est_depth/np.max(est_depth)*255
+        # est_depth_vis = np.clip(est_depth_vis, 0, 255).astype(np.uint8)
+        # est_depth_vis = cv2.applyColorMap(est_depth_vis, cv2.COLORMAP_JET)
+        # est_depth_vis = cv2.cvtColor(est_depth.astype(np.float32), cv2.COLOR_GRAY2RGB)
+        # 在深度图上画 关键点位置
+        # # Draw points
+        # for p in np.around(kpts_wdepth).astype(np.int32): #.astype(np.int32):
+        #     draw_point(est_depth_vis,p,(0,0,255))
         # est_depth_vis = cv2.cvtColor(est_depth_vis, cv2.COLOR_GRAY2RGB)
-        whole = np.concatenate([color_data, est_depth_vis], axis=1)
-        tH = H//2
-        tW = W//2 #为了保证ffmpeg拿到的是大小能被2整除
-        whole  = cv2.resize(whole, (tW+tW%2, tH+tH%2))
+        # whole = np.concatenate([color_data, est_depth_vis], axis=1)
+        # tH = H #//2
+        # tW = W #//2 #为了保证ffmpeg拿到的是大小能被2整除
+        # whole  = cv2.resize(whole, (tW+tW%2, tH+tH%2))
         # cv2.imshow(f'dt and coarse depth', whole[:, :, ::-1])
         # cv2.waitKey(0)
         # 保存为 uint 格式 和原gt depth一样格式吧 6553.5
         est_depth = est_depth * DEPTHSCALE
         # 对于实际深度> 65535 的就按最大值 就会成为白色
         depthclip = np.clip(est_depth, 0 , 65535) # 10000
-        savepath = os.path.join('triangulation/coarsedepth', "cd%04d.png" % idx)
-        cv2.imwrite(savepath, depthclip.astype(np.uint16))
+        # cv2.imshow(f'keypoint depth vis', depthclip)
+        # cv2.waitKey(0)
+        savepath = os.path.join('tridebug1', "cd%04d.png" % idx) # triangulation/coarsedepth
+        # cv2.imwrite(savepath, depthclip.astype(np.uint16))
+        outvisfile = os.path.join('tridebug1', "dt%04d.jpg" % idx)
         cv2.imwrite(outvisfile, cv2.cvtColor(color_data, cv2.COLOR_BGR2RGB))
         print('save coasrse depth: {}'.format(savepath))
 
