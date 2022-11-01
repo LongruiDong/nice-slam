@@ -118,11 +118,19 @@ class BaseDataset(Dataset):
         if self.use_prior: # 若使用 prior 就是直接看id 不一定存在
             if not index in self.prior_poses.keys():
                 depth_path = None # 用key 来看是否是kf
+                keypt_path = None
             else:
                 depth_path = f'{self.prior_folder}/triangulation/coarsedepth/cd' + '%04d' % index + '.png'
+                # 同时载入本kf 关键点文件 ####.txt
+                keypt_path = f'{self.prior_folder}/' + '%04d' % index + '.txt'
         else:
             depth_path = self.depth_paths[index]
         color_data = cv2.imread(color_path)
+        if keypt_path is None:
+            keypt_data = None
+        else: # kptid u v 3dpid(-1表示没有对应) x(-1) y z
+            keypt_arr = np.loadtxt(keypt_path, skiprows=1)[:, :4] # (m,4)
+            keypt_data = torch.from_numpy(keypt_arr) # 这里kpt像素坐标 是在原图size上的
         if depth_path is None:
             depth_data = None
         elif ('.png' in depth_path):
@@ -196,6 +204,13 @@ class BaseDataset(Dataset):
                 depth_data = F.interpolate(
                     depth_data[None, None], self.crop_size, mode='nearest')[0, 0]
             color_data = color_data.permute(1, 2, 0).contiguous()
+            # 此时 前面载入的kpt 的坐标也要同时resize
+            if keypt_data is not None:
+                # reszie比例
+                sx = self.crop_size[1] / W
+                sy = self.crop_size[0] / H
+                keypt_data[:, 1] *= sx
+                keypt_data[:, 2] *= sy # 后面取出的时候要四舍五入转整数
 
         edge = self.crop_edge
         if edge > 0:
@@ -226,13 +241,16 @@ class BaseDataset(Dataset):
             # j = j.reshape(-1)
             # indices = torch.randint(i.shape[0], (100,)) # 值域[0，总像素数) 的size为(n)的向量
             # indices = indices.clamp(0, i.shape[0]) # 确保值域范围 （多此一举？ 上句已经保证了）
+        pose_nan = torch.full(size=pose.shape, fill_value=float('nan')).to(self.device) # 只是代替None 的任一变量 shape 无所谓
         if self.use_prior:
             if depth_data is not None:    
-                return index, color_data.to(self.device), depth_data.to(self.device), pose.to(self.device), prior_pose.to(self.device)
+                return index, color_data.to(self.device), depth_data.to(self.device), pose.to(self.device), prior_pose.to(self.device), keypt_data.to(self.device)
             else: # 此时 depth 和 prior pose 都是none 为了dataloader 把none 改为 size 相同 但元素全为nan的tensor
-                return index, color_data.to(self.device), torch.full(size=[H, W], fill_value=float('nan')).to(self.device), pose.to(self.device), torch.full(size=pose.shape, fill_value=float('nan')).to(self.device)
+                # depth_nan = torch.full(size=color_data.shape, fill_value=float('nan')).to(self.device) # color_data.shape
+                # pose_nan = torch.full(size=pose.shape, fill_value=float('nan')).to(self.device)
+                return index, color_data.to(self.device), pose_nan, pose.to(self.device), pose_nan, pose_nan
         else: # 正常模式
-            return index, color_data.to(self.device), depth_data.to(self.device), pose.to(self.device), torch.full(size=pose.shape, fill_value=float('nan')).to(self.device)
+            return index, color_data.to(self.device), depth_data.to(self.device), pose.to(self.device), pose_nan, pose_nan
                     
 
     def createpcd(self, w2c_mats, skip = 30):
@@ -293,7 +311,13 @@ class Replica(BaseDataset):
         self.load_poses(f'{self.input_folder}/traj.txt')
         # 增加选择是否载入 作为先验的kf pose 的 位姿 注意 是tum 格式 c2w
         if self.use_prior:
+            # 载入 mappts.txt 3dpid x y z 注意这里还是以首帧为世界系下的 orb-slam输出的点云
+            self.load_sparse_points(f'{self.prior_folder}/mappts.txt')
+            # 在对位姿做完坐标系转换后 也会对 上面的原始orb 稀疏点云 做转换从而到对应的 nerf-pytorch坐标系
             self.load_prior_poses(f'{self.prior_folder}/KeyFrameTrajectory.txt')
+            
+            
+            
 
     def load_poses(self, path):
         self.poses = []
@@ -328,7 +352,7 @@ class Replica(BaseDataset):
         """
         firstgtpose = self.poses[0].cpu().numpy() # c2w
         firstgtpose[:3, 1] *= -1
-        firstgtpose[:3, 2] *= -1 # 拿出gt首帧pose 来给prior做变换 注意已经恢复到原坐标系
+        firstgtpose[:3, 2] *= -1 # 拿出gt首帧pose 来给prior做变换 注意已经恢复到原坐标系 Twg0
         estpose = np.loadtxt(path) # 本身是kf pose
         n_est = estpose.shape[0]
         print('load prior pose from {}, kf len: {}'.format(path, n_est))
@@ -347,7 +371,7 @@ class Replica(BaseDataset):
             c2w = np.array(TQtoSE3(value))
             if inv_pose is None: # 首帧位姿归I 但是好像只有tum做了归一化处理 why
                 inv_pose = np.linalg.inv(c2w) #T0we
-                ew2gw = firstgtpose@inv_pose
+                ew2gw = firstgtpose@inv_pose # Twg0@T0we = Twg we
                 # c2w = np.eye(4)
                 c2w = ew2gw@c2w
             else:
@@ -357,7 +381,80 @@ class Replica(BaseDataset):
             c2w[:3, 2] *= -1
             c2w = torch.from_numpy(c2w).float()
             self.prior_poses[frameid] = c2w # 直接用字典 保存 对齐并 转换世界系的 prior kf pose
+        
+        # 用Twg we 先把点云转换到同一个世界系下  再换为nerf 坐标
+        xyzs = self.orb_xyzs # copy.deepcopy() 这里的点云已经做过尺度对齐了
+        n_pcd = xyzs.shape[0]
+        xyzs_h = np.concatenate([xyzs, np.ones((n_pcd, 1))], -1) # (M,4)
+        xyzs_w = (xyzs_h @ ew2gw.T)[:, :3] # (M,3)
+        xyzs_w[:, 1] *= -1
+        xyzs_w[:, 2] *= -1 
+        self.prior_xyzs = torch.from_numpy(xyzs_w) # 这才是和现在 prior pose 对应的点云 注意
+        
+        # 再转为一个字典 key 本身就是和 mappts的行数一致
+        self.prior_xyzs_dict = dict([(i, self.prior_xyzs[i]) for i in range(n_pcd)])
+        #再用另一个字典保存固定的来自先验的3d对所有kf的2d观测  它的key不一定涉及所有mappts 其实都有观测
+        self.prior_3dobs_dict = {}
+        for (key, value) in self.orb_xyzs_dict.items():
+            if len(value) > 1: # 表示此3d点有对应的2d点 直接添加就行
+                obsarr = value[1] # (o, 2) 
+                self.prior_3dobs_dict[key] = torch.from_numpy(obsarr)
+        
+        # # 另一种方式来转换稀疏点 这样就同时保存了 3d到2d 的对应关系 否则上面的方式还得再用变量来保存
+        # self.prior_xyzs_dict = {}
+        # for (key, value) in self.orb_xyzs_dict.items():
+        #     self.prior_xyzs_dict[key] = []
+        #     xyz = value[0]
+        #     xyz_h = np.concatenate([xyz, np.array([1])]) # (4,)
+        #     xyz_w = (ew2gw @ xyz_h)[:3]
+        #     xyz_w[1] *= -1
+        #     xyz_w[2] *= -1
+        #     self.prior_xyzs_dict[key].append(torch.from_numpy(xyz_w))
+        #     if len(value) > 1: # 表示此3d点有对应的2d点 直接添加就行
+        #         obsarr = value[1] # (o, 2) 
+        #         self.prior_xyzs_dict[key].append(torch.from_numpy(obsarr))  
             
+            
+     
+    def load_sparse_points(self, path):
+        """载入整体点云文件 mappts.txt 3dpid x y z [obsv_frameid kptid ....(repeat) ]
+        其实只载入前4行组成tensor N,4 就行 最后将会保存每次最新的3d点
+        
+        3d点原本是认为在 首帧为世界系的坐标系下的 需要先转换到新的世界系下 
+        然后 再由于是nerf-pytorch坐标系 y,z要取反
+        Args:
+            path (str): orb-slam 输出的稀疏点云txt /home/dlr/Project1/ORB_SLAM2_Enhanced/result/mappts.txt
+        """
+        
+        # 载入 mapptsfile 以字典方式存吧  每行长度不一
+        dic_mappts = {}
+        with open(path, 'r') as f:
+            lines = f.readlines()
+        n_pts = len(lines) # 总3d点数
+        xyzs = []
+        for i in range(n_pts):
+            line = lines[i]
+            raw = line.split(' ')
+            if len(raw) <= 4:
+                print('[ERROR] this 3d pt has no 2d obs!')
+                assert False
+            num_obs = int((len(raw)-4) / 2)
+            assert (len(raw)-4) % 2 == 0
+            dic_mappts[int(raw[0])] = []
+            xyz = np.array(raw[1:4], dtype=float) # (3)
+            if self.prior_scale is not None: # 如果需要 先对prior 稀疏点云 的尺度恢复! 
+                xyz *= self.prior_scale
+            dic_mappts[int(raw[0])].append(xyz)
+            xyz.reshape(1, -1)
+            xyzs += [xyz]
+            if len(raw) > 4:
+                obsarr = np.array(list(map(int, raw[4:]))).reshape(num_obs, 2) # (n,2)
+                dic_mappts[int(raw[0])].append(obsarr)
+        # (mapptidx:[xyz, obsarr])
+        xyzs = np.stack(xyzs, 0) # (n,3)
+        self.orb_xyzs = xyzs
+        self.orb_xyzs_dict = dic_mappts # 可来验证
+        # return xyzs       
 
     
     # 也画出轨迹 想看看bound to do
