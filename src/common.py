@@ -109,7 +109,7 @@ def get_rays_from_uv(i, j, c2w, H, W, fx, fy, cx, cy, device):
 def select_uv(i, j, n, depth, color, device='cuda:0'):
     """
     Select n uv from dense uv. 他这里没按I-map那样采样啊。。 均匀分布来采样
-    depth 可能是 nan tensor
+    depth 可能是 nan tensor 而且shape还是[4,4]
     # i和j其实就是 图像裁剪后区域每像素的 下标 (u,v)
     """
     i = i.reshape(-1)
@@ -120,7 +120,7 @@ def select_uv(i, j, n, depth, color, device='cuda:0'):
     j = j[indices]  # (n)
     depth = depth.reshape(-1)
     color = color.reshape(-1, 3)
-    depth = depth[indices]  # (n)
+    depth = depth[indices]  # (n)  当depth是nan tensor shape 不对时，在这里 out of bounds
     color = color[indices]  # (n,3) 选中的像素上的深度 和 颜色
     
     return i, j, depth, color
@@ -184,7 +184,7 @@ def get_samples(H0, H1, W0, W1, n, H, W, fx, fy, cx, cy, c2w, depth, color, devi
     """
     Get n rays from the image region H0..H1, W0..W1. 图像裁掉了边缘一些像素
     c2w is its camera pose and depth/color is the corresponding image tensor.
-    depth 可能是nan tensor
+    depth 可能是nan tensor 而且shape 还是[4,4] 反正nan了
     (n,3) (n,3)  (n) (n,3)
     """
     i, j, sample_depth, sample_color = get_sample_uv( # 先采样n个像素 对应的下标 深度 颜色 这块不会有我呢提 和 Bound无关
@@ -260,22 +260,28 @@ def get_tensor_from_camera(RT, Tquad=False):
     return tensor
 
 
-def raw2outputs_nerf_color(raw, z_vals, rays_d, occupancy=False, device='cuda:0'):
+def raw2outputs_nerf_color(raw, z_vals, rays_d, occupancy=False,
+                           coarse_depths=None,
+                        #    valid_depth_mask=None,
+                           err=1,
+                           device='cuda:0'):
     """
     Transforms model's predictions to semantically meaningful values.
 
     Args:
         raw (tensor, N_rays*N_samples*4): prediction from model.
-        z_vals (tensor, N_rays*N_samples): integration time.
+        z_vals (tensor, N_rays,N_samples): integration time.
         rays_d (tensor, N_rays*3): direction of each ray.
         occupancy (bool, optional): occupancy or volume density. Defaults to False.
         device (str, optional): device. Defaults to 'cuda:0'.
+        coarse_depths: 当前batch的粗糙深度 可能含有0 用来构建 sigma_loss. 默认关闭
+        err: 构建sigma_loss (KL 散度) 时需要的方差tensor 本来应该是各深度kpt reprojection err 算的,暂时设为1
 
     Returns:
         depth_map (tensor, N_rays): estimated distance to object.
         depth_var (tensor, N_rays): depth variance/uncertainty.
-        rgb_map (tensor, N_rays*3): estimated RGB color of a ray.
-        weights (tensor, N_rays*N_samples): weights assigned to each sampled color.
+        rgb_map (tensor, N_rays,3): estimated RGB color of a ray.
+        weights (tensor, N_rays,N_samples): weights assigned to each sampled color.
     """
 
     def raw2alpha(raw, dists, act_fn=F.relu): return 1. - \
@@ -288,9 +294,9 @@ def raw2outputs_nerf_color(raw, z_vals, rays_d, occupancy=False, device='cuda:0'
     # different ray angle corresponds to different unit length
     dists = dists * torch.norm(rays_d[..., None, :], dim=-1)
     rgb = raw[..., :-1] #注意颜色是其中的一部分
-    if occupancy: # 这个alpha 都是占据概率
+    if occupancy: # 这个alpha 都是占据概率 原本sigma 对于nice是不在[0,1]
         raw[..., 3] = torch.sigmoid(10*raw[..., -1])
-        alpha = raw[..., -1]
+        alpha = raw[..., -1] # 才是0，1
     else:
         # original nerf, volume density
         alpha = raw2alpha(raw[..., -1], dists)  # (N_rays, N_samples)
@@ -301,7 +307,21 @@ def raw2outputs_nerf_color(raw, z_vals, rays_d, occupancy=False, device='cuda:0'
     depth_map = torch.sum(weights * z_vals, -1)  # (N_rays)
     tmp = (z_vals-depth_map.unsqueeze(-1))  # (N_rays, N_samples)
     depth_var = torch.sum(weights*tmp*tmp, dim=1)  # (N_rays)
-    return depth_map, depth_var, rgb_map, weights
+    
+    sigma_loss = None # 返回值可能为空
+    if coarse_depths is not None: # 非空 意味着启用 kl loss
+        if len(coarse_depths.shape)==1:
+            coarse_depths = coarse_depths.reshape(-1, 1)
+        gt_none_zero_mask = (coarse_depths>0).squeeze(-1) # (N,1) 只对 那些有粗糙深度的区域使用此Loss [:,None]
+        # gt_none_zero_mask = gt_none_zero_mask.squeeze(-1)
+        # weights 里会有0 导致下面计算失败nan https://github.com/dunbar12138/DSNeRF/issues/69 加上很小的数
+        sigma_loss = -torch.log(weights[gt_none_zero_mask] + 1e-5) * \
+            torch.exp(-(z_vals[gt_none_zero_mask] - coarse_depths[gt_none_zero_mask]) ** 2 / (2 * err)) * \
+                dists[gt_none_zero_mask] # 应为 (N_rays[valid depth], N_samples)
+        assert torch.isnan(sigma_loss).any() == False # 会出现nan？
+        sigma_loss = torch.sum(sigma_loss, dim=1) # 应为 (N_rays[valid depth])
+        
+    return depth_map, depth_var, rgb_map, weights, sigma_loss
 
 
 def dataclass_map(fn, x):
@@ -382,7 +402,7 @@ def compute_tvnorm_weight(step, max_step, weight_start=0.0, weight_end=0.0):
 def get_rays(H, W, fx, fy, cx, cy, c2w, device):
     """
     Get rays for a whole image.
-
+    c2w 应该是 4,4
     """
     if isinstance(c2w, np.ndarray):
         c2w = torch.from_numpy(c2w)

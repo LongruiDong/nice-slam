@@ -51,14 +51,19 @@ class Visualizer(object):
                     c2w = torch.cat([c2w, bottom], dim=0)
                 else:
                     c2w = c2w_or_camera_tensor
-
+                
+                tmp = torch.zeros(gt_depth.shape, device=self.device)
+                if torch.equal(tmp, gt_depth): # 若当前帧是非orb kf 就不用它来render
+                    vis_depth = None
+                else:
+                    vis_depth = gt_depth
                 depth, uncertainty, color = self.renderer.render_img(
                     c,
                     decoders,
                     c2w,
                     self.device,
                     stage='color', #这个渲染来可视化的stage是color！ 但其实也会得到fine下的occupancy
-                    gt_depth=gt_depth)
+                    gt_depth=vis_depth) # 可能为none
                 depth_np = depth.detach().cpu().numpy()
                 color_np = color.detach().cpu().numpy()
                 depth_residual = np.abs(gt_depth_np - depth_np)
@@ -77,7 +82,7 @@ class Visualizer(object):
                 # 对于outdoor 要排除掉无穷远
                 gt_alldepthv = np.unique(gt_depth_np)
                 gt_alldepthv1 = gt_alldepthv[np.argsort(-gt_alldepthv)] #降序排列
-                secondmax_depth = gt_alldepthv1[1] # 次大值 保证不是sky 无限远
+                # secondmax_depth = gt_alldepthv1[1] # 次大值 保证不是sky 无限远
                 # depth_np = depth_np/max_depth*255 #这种方式本质上和源代码等效 近处的深度仍看不清楚
                 # depth_np = np.clip(depth_np, 0, 255).astype(np.uint8)
                 # depth_np = depth_np.astype(np.float)*100
@@ -91,17 +96,17 @@ class Visualizer(object):
                 if self.depth_trunc>0: # 如果depth截断过 就用最大值 ！
                     secondmax_depth = max_depth
                 axs[0, 0].imshow(gt_depth_np, cmap="plasma",
-                                 vmin=0, vmax=secondmax_depth) #max_depth
+                                 vmin=0, vmax=max_depth) #max_depth
                 axs[0, 0].set_title('Input Depth')
                 axs[0, 0].set_xticks([])
                 axs[0, 0].set_yticks([])
                 axs[0, 1].imshow(depth_np, cmap="plasma",
-                                 vmin=0, vmax=secondmax_depth) #max_depth
+                                 vmin=0) #max_depth , vmax=max_depth
                 axs[0, 1].set_title('Generated Depth')
                 axs[0, 1].set_xticks([])
                 axs[0, 1].set_yticks([])
                 axs[0, 2].imshow(depth_residual, cmap="plasma",
-                                 vmin=0, vmax=secondmax_depth) #max_depth
+                                 vmin=0, vmax=max_depth) #max_depth
                 axs[0, 2].set_title('Depth Residual')
                 axs[0, 2].set_xticks([])
                 axs[0, 2].set_yticks([])

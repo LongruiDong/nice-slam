@@ -302,7 +302,7 @@ if __name__ == '__main__':
                     'Datasets/CoFusion/room4/trajectories/gt-cam-0.txt')
                 poses_gt = torch.from_numpy(poses_gt[:, 1:])
             else:
-                poses_gt, mask = convert_poses(gt_c2w_list, N, scale)
+                poses_gt, mask = convert_poses(gt_c2w_list, N, scale) # 对于prior模式下 估计位姿中有nan都是非orb kf 用此Mask来覆盖gt
             poses_est, _ = convert_poses(estimate_c2w_list, N, scale) # tx y z qw qx qy qz
             poses_est = poses_est[mask]
             evaluate(poses_gt, poses_est,

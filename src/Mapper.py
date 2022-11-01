@@ -31,6 +31,8 @@ class Mapper(object):
         self.idx = slam.idx
         self.nice = slam.nice
         self.c = slam.shared_c
+        self.prior_xyzs_dict = slam.prior_xyzs_dict
+        self.prior_3dobs_dict = slam.prior_3dobs_dict # 还有对应关系
         self.bound = slam.bound
         self.logger = slam.logger
         self.mesher = slam.mesher
@@ -78,6 +80,12 @@ class Mapper(object):
         self.frustum_feature_selection = cfg['mapping']['frustum_feature_selection']
         self.keyframe_selection_method = cfg['mapping']['keyframe_selection_method']
         self.save_selected_keyframes_info = cfg['mapping']['save_selected_keyframes_info']
+        self.prior_camera = cfg['tracking']['prior_camera'] # 控制当前触发mapping的帧初值是否用prior kf的位姿
+        self.less_sample_space = slam.less_sample_space # 是否在 surface 附近区间多重采样,对应不同的render_batch
+        self.use_KL_loss = slam.use_KL_loss # 是否使用ds-nerf的sigma loss
+        self.sigma_lambda = cfg['rendering']['sigma_lambda'] # KL loss 的权重参数
+        self.color_loss_mask = cfg['mapping']['color_loss_mask'] # color loss 是否用depth>0 mask
+        self.use_regulation = cfg['mapping']['use_regulation'] # 是否增加对于前景的nice sigma 的正则化
         if self.save_selected_keyframes_info:
             self.selected_keyframes = {}
 
@@ -85,7 +93,7 @@ class Mapper(object):
             if coarse_mapper:
                 self.keyframe_selection_method = 'global'
 
-        self.keyframe_dict = []
+        self.keyframe_dict = [] # 还是个列表 里面每个元素是dict
         self.keyframe_list = []
         self.frame_reader = get_dataset(
             cfg, args, self.scale, device=self.device)
@@ -234,8 +242,73 @@ class Mapper(object):
             np.array(selected_keyframe_list))[:k])
         return selected_keyframe_list
 
+    def keyframe_selection_prior(self, keypt, keyframe_dict, k):
+        """
+        当没有gt depth 后， 可以使用来自orb的 2d-3d对应关系 给定某帧kpt数据, 来给当前kf选择给定数量的历史kf
+        注意 返回的仍是 kfid 列表 而不是 其普通帧id 这才和后面代码对应
+        Args:
+            keypt (tensor): (n, 4) 包含了kpt的信息 以及其对应的3d点: kptid u v 3dpid(-1表示没有对应)
+            keyframe_dict (list): a list containing info for each keyframe.
+            k (int): number of keyframes to select. 因为能看到局部3d点的历史帧可能有很多 从中挑k个出来
+        """
+        
+        # 先从kpt中拿出所有3d点 id 作为局部地图点
+        curr_mappt_idx = torch.unique(keypt[:, 3]) # 咋还在cpu上 float64
+        curr_mappt_idx = curr_mappt_idx[curr_mappt_idx >= 0] # 去掉 -1 表示关键点无对应 地图点
+        # 从 prior_3dobs_dict 拿出上面地图点 的所有观测
+        n_curr_mappt = curr_mappt_idx.shape[0]
+        curr_obs = []
+        for i in range(n_curr_mappt):
+            key = int(curr_mappt_idx[i])
+            obsarr = self.prior_3dobs_dict[key] # (m,2)
+            curr_obs += [obsarr]
+        curr_obs = torch.cat(curr_obs, 0) # (#allobs from local mapts, 2)
+        curr_obs_frame = curr_obs[:, 0].int() # (#allobs from local mapts) int64
+        # 遍历历史kf 统计它出现在curr_obs_frame的次数 表示某kf 和当前kf的共视 点数量
+        list_keyframe = []
+        for keyframeid, keyframe in enumerate(keyframe_dict):
+            kf_fid = int(keyframe['idx']) # kf 对应的frame id
+            # 统计kf_fid出现在curr_obs_frame的次数
+            cov_num = (curr_obs_frame==kf_fid).sum()
+            if cov_num>0:
+                list_keyframe.append( # 这里的id是关键帧id！
+                    {'id': keyframeid, 'cov_num': cov_num, 'frame_id': kf_fid})
+        # 对含有共视的kf排序  这里的kf都是有kpt的帧(来自orb)
+        list_keyframe = sorted(
+            list_keyframe, key=lambda i: i['cov_num'], reverse=True) #降序排列 根据共视点数量
+        list_keyframe_id = [dic['id'] for dic in list_keyframe]
+        selected_keyframe_list = list_keyframe_id[:k] # 拿出前k帧 的关键帧id !
+        
+        return selected_keyframe_list   
+    
+    def get_last_priorkf(self, keyframe_dict, keyframe_list):
+        """
+        从历史Kf中找到最近的一个含有kpt的kf; 用于当mapping到非kpt kf时  如何选取含有共视的Kf
+        返回 id 以及对应的 keypt 
+        Args:
+            keyframe_dict (list): a list containing info for each keyframe.
+            keyframe_list (list): list of keyframe index.
+        """
+        # 先判断上一个kf是否是kpt kf
+        last_kf_dic = keyframe_dict[-1]
+        last_kf_kpt = last_kf_dic['keypt']
+        if not torch.isnan(last_kf_kpt).all().item():
+            # 若上一帧就是 就返回它 以及kpt
+            return -1, last_kf_kpt
+        # 不是 那就逆向遍历 先对kf id 降序排列 且排除上一个kf
+        inv_keyframe_list = sorted(keyframe_list[:-1], reverse=True)
+        # for keyframeid, _ in enumerate(inv_keyframe_list):
+        for keyframeid in reversed(range(len(keyframe_list)-1)):
+            keyframe_dic =  keyframe_dict[keyframeid]
+            kf_kpt = keyframe_dic['keypt']
+            if not torch.isnan(kf_kpt).all().item():
+                # 若此帧就是 就返回它 以及kpt
+                return keyframeid, kf_kpt
+        
+        
+    
     def optimize_map(self, num_joint_iters, lr_factor, idx, cur_gt_color, cur_gt_depth,
-                     gt_cur_c2w, keyframe_dict, keyframe_list, cur_c2w):
+                     gt_cur_c2w, keyframe_dict, keyframe_list, cur_c2w, keypt):
         """
         Mapping iterations. Sample pixels from selected keyframes,
         then optimize scene representation and camera poses(if local BA enabled).
@@ -245,17 +318,19 @@ class Mapper(object):
             lr_factor (float): the factor to times on current lr.
             idx (int): the index of current frame
             cur_gt_color (tensor): gt_color image of the current camera.
-            cur_gt_depth (tensor): gt_depth image of the current camera.
+            cur_gt_depth (tensor): gt_depth image of the current camera. / coarse prior depth map (will be updated)
             gt_cur_c2w (tensor): groundtruth camera to world matrix corresponding to current frame.
             keyframe_dict (list): list of keyframes info dictionary.
             keyframe_list (list): list of keyframe index.
-            cur_c2w (tensor): the estimated camera to world matrix of current frame. 
+            cur_c2w (tensor): the estimated camera to world matrix of current frame. 当使用prior pose来track 这里可能为nan 
+            keypt (tensor): prior key point & 2d-3d correspondences (data api), kptid u v 3dpid(-1表示没有对应)
 
         Returns:
             cur_c2w/None (tensor/None): return the updated cur_c2w, return None if no BA
         """
         H, W, fx, fy, cx, cy = self.H, self.W, self.fx, self.fy, self.cx, self.cy
         c = self.c
+        prior_xyzs_dict = self.prior_xyzs_dict # 取出当前最新的稀疏点
         cfg = self.cfg
         device = self.device
         bottom = torch.from_numpy(np.array([0, 0, 0, 1.]).reshape(
@@ -266,18 +341,34 @@ class Mapper(object):
         else:
             if self.keyframe_selection_method == 'global': # imap 使用5个kf
                 num = self.mapping_window_size-2
+                if torch.isnan(cur_c2w).all().item():
+                    num = self.mapping_window_size-1
                 optimize_frame = random_select(len(self.keyframe_dict)-1, num) # 按照它论文 这里不应该采用一定的选择策略？
             elif self.keyframe_selection_method == 'overlap': #按共视区域 注意这里也涉及深度  后续可以用2d-3d对应来找overlap的kf
                 num = self.mapping_window_size-2 # K-2
                 optimize_frame = self.keyframe_selection_overlap(
                     cur_gt_color, cur_gt_depth, cur_c2w, keyframe_dict[:-1], num)
+            elif self.keyframe_selection_method == 'prior':
+                num = self.mapping_window_size-2 # K-2
+                if not torch.isnan(keypt).all().item(): # 若使用先验 且 当前帧关键点非空
+                    optimize_frame = self.keyframe_selection_prior(keypt, keyframe_dict[:-1], num)
+                else: # 若当前帧不含kpt 其他策略 此时既没有coarse depth 也没有track pose初值 只能都以上个有效kf来做 且当前帧不加入窗口
+                    # optimize_frame = random_select(len(self.keyframe_dict)-1, num) # 就退化为简单随机选择
+                    # 拿出上一个含有kpt的kf 以他的共视拿来用
+                    last_priorkf_id, last_keypt = self.get_last_priorkf(keyframe_dict, keyframe_list)
+                    if True: # 之后就为true self.prior_camera
+                        num = self.mapping_window_size-1 # K-1 此时由于触发帧不加入窗口，为保证窗口内共K，就这里从历史多拿一帧！
+                    optimize_frame = self.keyframe_selection_prior(last_keypt, keyframe_dict[:-1], num)
+                    
+                    
 
         # add the last keyframe and the current frame(use -1 to denote)
         oldest_frame = None
         if len(keyframe_list) > 0:
             optimize_frame = optimize_frame + [len(keyframe_list)-1] #recent kf
             oldest_frame = min(optimize_frame)
-        optimize_frame += [-1]
+        if not torch.isnan(cur_c2w).all().item(): # 否则 不含此帧进入窗口！
+            optimize_frame += [-1] # add curr frame 只要当前帧track的位姿非全nan 表示gt pose or 使用prior时 本帧就是orbkf 那就包含此帧
 
         if self.save_selected_keyframes_info:
             keyframes_info = []
@@ -286,8 +377,8 @@ class Mapper(object):
                     frame_idx = keyframe_list[frame]
                     tmp_gt_c2w = keyframe_dict[frame]['gt_c2w']
                     tmp_est_c2w = keyframe_dict[frame]['est_c2w']
-                else:
-                    frame_idx = idx
+                else: # 当使用prior pose 时 窗口内不在包含当前帧 下面的就不使用了
+                    frame_idx = idx # curr frame 的frame id 
                     tmp_gt_c2w = gt_cur_c2w
                     tmp_est_c2w = cur_c2w
                 keyframes_info.append(
@@ -312,7 +403,7 @@ class Mapper(object):
         if not torch.isnan(cur_gt_depth).all().item(): # cur_gt_depth is not None:
             gt_depth_np = cur_gt_depth.cpu().numpy()
         else:
-            gt_depth_np = None
+            gt_depth_np = None # 只是用与 FFS
         if self.nice:
             if self.frustum_feature_selection:
                 masked_c_grad = {}
@@ -371,7 +462,7 @@ class Mapper(object):
                     if frame != -1:
                         c2w = keyframe_dict[frame]['est_c2w']
                         gt_c2w = keyframe_dict[frame]['gt_c2w']
-                    else:
+                    else: # 当使用prior pose 时 窗口内不在包含当前帧 下面的就不使用了
                         c2w = cur_c2w
                         gt_c2w = gt_cur_c2w
                     camera_tensor = get_tensor_from_camera(c2w)
@@ -409,7 +500,8 @@ class Mapper(object):
                     [{'params': decoders_para_list, 'lr': 0}])
             from torch.optim.lr_scheduler import StepLR
             scheduler = StepLR(optimizer, step_size=200, gamma=0.8)
-
+        kl_loss = None
+        regulation_loss = None # 为了观察大小
         for joint_iter in range(num_joint_iters):
             if self.nice:
                 if self.frustum_feature_selection:
@@ -445,17 +537,27 @@ class Mapper(object):
                 if self.BA:
                     optimizer.param_groups[1]['lr'] = self.BA_cam_lr
 
-            if (not (idx == 0 and self.no_vis_on_first_frame)) and ('Demo' not in self.output) and (not torch.isnan(cur_gt_depth).all().item()):
-                # if joint_iter>0: #非首次迭代 采样点才非空
-                #     self.visualizer.vis( #每一次优化前去可视化rendered的结果
-                #         idx, joint_iter, cur_gt_depth, cur_gt_color, cur_c2w, self.c, self.decoders,
-                #         selecti=self.slecti, selectj=self.slectj)
-                # else:
-                self.visualizer.vis( #每一次优化前去可视化rendered的结果
+            if (not (idx == 0 and self.no_vis_on_first_frame)) and ('Demo' not in self.output):
+                if torch.isnan(cur_gt_depth).all().item() and (not torch.isnan(cur_c2w).all().item()): # depth全nan 且位姿非nan 就画全0
+                    # cur_gt_depth_0 = torch.zeros_like(cur_gt_color).to(device)
+                    self.visualizer.vis( #每一次优化前去可视化rendered的结果
+                    idx, joint_iter, torch.full(size=cur_gt_color.shape[:2], fill_value=float(0)).to(device), cur_gt_color, cur_c2w, self.c, self.decoders,
+                    selecti=self.slecti, selectj=self.slectj)
+                elif (not torch.isnan(cur_gt_depth).all().item()): # 本帧depth非nan 意味着pose也有 正常画
+                    # cur_gt_depth_0 = cur_gt_depth
+                    self.visualizer.vis( #每一次优化前去可视化rendered的结果
                     idx, joint_iter, cur_gt_depth, cur_gt_color, cur_c2w, self.c, self.decoders,
                     selecti=self.slecti, selectj=self.slectj)
+            # 也打印一下 各个 kl loss    
             if (joint_iter % self.visualizer.inside_freq == 0) and (joint_iter>0): # (idx % self.visualizer.freq == 0) and 
-                print(f'[{self.stage}] Fid {idx:d} -- {joint_iter:d}, Re-rendering loss: {initial_loss:.2f}->{loss:.2f} ')
+                if self.use_KL_loss and self.use_regulation:
+                    print(f'[{self.stage}] Fid {idx:d} -- {joint_iter:d}, Re-rendering loss: {initial_loss:.2f}->{loss:.2f}. KL_loss: {initial_kl_loss:.2f}->{kl_loss:.2f}. Reg_loss: {initial_regulation_loss:.2f}->{regulation_loss:.2f}')
+                elif self.use_KL_loss and not self.use_regulation:
+                    print(f'[{self.stage}] Fid {idx:d} -- {joint_iter:d}, Re-rendering loss: {initial_loss:.2f}->{loss:.2f}. KL_loss: {initial_kl_loss:.2f}->{kl_loss:.2f}')
+                elif not self.use_KL_loss and self.use_regulation:
+                    print(f'[{self.stage}] Fid {idx:d} -- {joint_iter:d}, Re-rendering loss: {initial_loss:.2f}->{loss:.2f}. Reg_loss: {initial_regulation_loss:.2f}->{regulation_loss:.2f}')
+                else:
+                    print(f'[{self.stage}] Fid {idx:d} -- {joint_iter:d}, Re-rendering loss: {initial_loss:.2f}->{loss:.2f}')
             optimizer.zero_grad() #梯度归零
             batch_rays_d_list = []
             batch_rays_o_list = []
@@ -467,15 +569,18 @@ class Mapper(object):
                 if frame != -1: # 最下面目前 还可能有 没有 prior depth 的kf构成
                     gt_depth = keyframe_dict[frame]['depth'].to(device)
                     gt_color = keyframe_dict[frame]['color'].to(device)
-                    if self.BA and frame != oldest_frame:
+                    if self.BA and frame != oldest_frame: # 最老帧位姿固定
                         camera_tensor = camera_tensor_list[camera_tensor_id]
                         camera_tensor_id += 1
                         c2w = get_camera_from_tensor(camera_tensor)
                     else:
                         c2w = keyframe_dict[frame]['est_c2w']
-
-                else:
-                    gt_depth = cur_gt_depth.to(device)
+                # 当使用prior pose 时 窗口内不在包含当前帧 下面的就不使用了
+                else: # cur_gt_depth 可能是nan tensor！为了之后batch_depth 那就在这里把gt_depth设为全0
+                    if not torch.isnan(cur_gt_depth).all().item():
+                        gt_depth = cur_gt_depth.to(device)
+                    else: # 当前帧是非orb kf
+                        gt_depth = torch.full(size=cur_gt_color.shape[:2], fill_value=float(0)).to(device)
                     gt_color = cur_gt_color.to(device)
                     if self.BA:
                         camera_tensor = camera_tensor_list[camera_tensor_id]
@@ -486,8 +591,8 @@ class Mapper(object):
                             print(f'Fid {idx:d} -- {joint_iter:d}, camera tensor error: {initial_loss_camera_tensor:.4f}->{loss_camera_tensor:.4f}')
                     else:
                         c2w = cur_c2w
-                # if frame == -1:#  idx -1 就是指当前帧
-                # 上面得到的gt_depth 可能是 nan
+
+                # 上面得到的gt_depth 可能是 nan-->改为全0表示
                     
                 # 每次batch iter 就要随机采样一次 batch_gt_depth 里面可能有nan
                 batch_rays_o, batch_rays_d, batch_gt_depth, batch_gt_color, sti, stj = get_samples(
@@ -505,7 +610,7 @@ class Mapper(object):
             batch_gt_depth = torch.cat(batch_gt_depth_list) # 6000 类似于batchsize batch_gt_depth 里面可能有nan
             batch_gt_color = torch.cat(batch_gt_color_list) # 6000,3
 
-            if self.nice and (not torch.isnan(batch_gt_depth).all().item()):
+            if self.nice: # and (not torch.isnan(batch_gt_depth).all().item())
                 # should pre-filter those out of bounding box depth value 还不涉及 ray上积分的bound
                 with torch.no_grad():
                     det_rays_o = batch_rays_o.clone().detach().unsqueeze(-1)  # (N, 3, 1)
@@ -522,18 +627,32 @@ class Mapper(object):
                 batch_rays_o = batch_rays_o[inside_mask]
                 batch_gt_depth = batch_gt_depth[inside_mask]
                 batch_gt_color = batch_gt_color[inside_mask]
-            # batch_gt_depth 要么 全nan 要么正常
-            if torch.isnan(batch_gt_depth).all().item():
+            # batch_gt_depth 要么 全nan 要么正常 不是的 当前帧可能无深度 但前面已经转为0了 所以就是0和非0混合
+            if torch.isnan(batch_gt_depth).all().item() or batch_gt_depth is None:
+                print('[debug] batch_gt_depth should not here!')
                 batch_gt_depth = None # 为了下面render 直接 去除表面引导的方便
-            ret = self.renderer.render_batch_ray(c, self.decoders, batch_rays_d,
-                                                 batch_rays_o, device, self.stage,
-                                                 gt_depth=None if ( self.coarse_mapper or (not self.guide_sample) ) else batch_gt_depth) # 突然意识到之前这里 还是会根据gt depth 采样ray上表面附近的
-            depth, uncertainty, color = ret
-            # 和 tracker中的改动一致
+            tmp = torch.zeros(batch_gt_depth.shape, device=self.device)
+            if torch.equal(tmp, batch_gt_depth): # 若当前帧是非orb kf 就不用它来render 否则全黑
+                validflag = False
+            else:
+                validflag = True
+            sigma_loss = None
+            if self.less_sample_space: # 在会更小范围内 对surface多重采样
+                ret = self.renderer.render_batch_ray_tri(c, self.decoders, batch_rays_d,
+                                                    batch_rays_o, device, self.stage,
+                                                    gt_depth=None if ( self.coarse_mapper or (not self.guide_sample) or (not validflag) ) else batch_gt_depth) # 突然意识到之前这里 还是会根据gt depth 采样ray上表面附近的
+                
+            else: # 原始情况
+                ret = self.renderer.render_batch_ray(c, self.decoders, batch_rays_d,
+                                                    batch_rays_o, device, self.stage,
+                                                    gt_depth=None if ( self.coarse_mapper or (not self.guide_sample) or (not validflag) ) else batch_gt_depth) # 突然意识到之前这里 还是会根据gt depth 采样ray上表面附近的
+            depth, uncertainty, color, weights, sigma_loss = ret # 这里的输出不同 但sigma_loss可能仍是None
+            # 和 tracker中的改动一致 现在已经不会是None
             if batch_gt_depth is not None:
-                depth_mask = (batch_gt_depth > 0)# & (batch_gt_depth < 600) #只考虑mask内的像素参与误差 # 对于outdoor 加上 不属于无穷远 vkitti 655.35
-            else: # 就都用 其实目前rgb only 时 depth_mask没用上
-                depth_mask = torch.full(size=batch_gt_depth.shape, fill_value=True)
+                if validflag: # 非全0
+                    depth_mask = (batch_gt_depth > 0)# & (batch_gt_depth < 600) #只考虑mask内的像素参与误差 # 对于outdoor 加上 不属于无穷远 vkitti 655.35
+                else: # 全0 就都用 其实目前rgb only 时 depth_mask没用上
+                    depth_mask = torch.full(size=batch_gt_depth.shape, fill_value=True)
             # 这里测试 loss 改为 color only loss
             if self.rgbonly:
                 loss = torch.tensor(0.0, requires_grad=True).to(device)  # 其他阶段都没color 下面还要加
@@ -544,16 +663,30 @@ class Mapper(object):
                 loss = torch.abs(
                     batch_gt_depth[depth_mask]-depth[depth_mask]).sum()
             if ((not self.nice) or (self.stage == 'color')): # 才发现 其他stage color是0 所以之前 rgb only 时应该 都改为color stage,反正其他stage color loss是错的
-                color_loss = torch.abs(batch_gt_color - color).sum()
+                if self.color_loss_mask: # 是否使用depth 的mask
+                    color_loss = torch.abs(batch_gt_color[depth_mask] - color[depth_mask]).sum()
+                else:
+                    color_loss = torch.abs(batch_gt_color - color).sum()
                 weighted_color_loss = self.w_color_loss*color_loss
                 if self.rgbonly:
                     self.w_color_loss = 1.
                     weighted_color_loss = color_loss
                 loss += weighted_color_loss
+            
+            # 当使用KL loss 时 继续添加
+            if self.use_KL_loss and sigma_loss is not None:
+                kl_loss = sigma_loss.mean() # (B,) -> 平均到一个值了
+                # loss += self.sigma_lambda*kl_loss # 权重求和
 
+            if self.use_regulation and validflag: # 对于 nice 当先验深度非全0时 也像下面那样同样正则化 前景
+                point_sigma = self.renderer.regulation_occ(
+                    c, self.decoders, batch_rays_d, batch_rays_o, batch_gt_depth, device, self.stage)
+                regulation_loss = torch.abs(point_sigma).sum()
+                loss += 0.1*regulation_loss
+            
             # for imap*, it uses volume density
             regulation = (not self.occupancy)
-            if regulation and batch_gt_depth is not None: # 增加条件
+            if regulation and batch_gt_depth is not None: # 增加条件 但其实 不会none了 总是0与非0
                 point_sigma = self.renderer.regulation(
                     c, self.decoders, batch_rays_d, batch_rays_o, batch_gt_depth, device, self.stage)
                 regulation_loss = torch.abs(point_sigma).sum()
@@ -578,6 +711,8 @@ class Mapper(object):
                         c[key] = val
             if joint_iter==0:
                 initial_loss = loss
+                initial_kl_loss = kl_loss
+                initial_regulation_loss = regulation_loss
             
             # 更新 全局 mapping step regnerf 但其实 coarse mapping 没用到weight decay
             self.gmstep += 1
@@ -593,19 +728,19 @@ class Mapper(object):
                         c2w = torch.cat([c2w, bottom], dim=0)
                         camera_tensor_id += 1
                         keyframe_dict[frame]['est_c2w'] = c2w.clone()
-                else:
+                else: # 当使用prior pose 时 窗口内不在包含当前帧 下面的就不使用了 
                     c2w = get_camera_from_tensor(
                         camera_tensor_list[-1].detach())
                     c2w = torch.cat([c2w, bottom], dim=0)
                     cur_c2w = c2w.clone()
         if self.BA:
-            return cur_c2w
+            return cur_c2w # 当使用prior pose 时 窗口内不在包含当前帧 那么这里就还是nan tensor
         else:
             return None
 
     def run(self):
-        cfg = self.cfg
-        idx, gt_color, gt_depth, gt_c2w, _ = self.frame_reader[0]
+        cfg = self.cfg # gt_depth 其实可以是 粗糙的初始深度 
+        idx, gt_color, gt_depth, gt_c2w, _, _ = self.frame_reader[0]
 
         self.estimate_c2w_list[0] = gt_c2w.cpu()
         init = True # 初始 需要做初始化
@@ -635,7 +770,7 @@ class Mapper(object):
                 print(prefix+"Mapping Frame ", idx)
                 print(Style.RESET_ALL)
 
-            _, gt_color, gt_depth, gt_c2w, _ = self.frame_reader[idx]
+            _, gt_color, gt_depth, gt_c2w, _, keypt = self.frame_reader[idx] # prior_c2w
 
             if not init: #初始化已结束
                 lr_factor = cfg['mapping']['lr_factor'] #非初始化 
@@ -664,7 +799,7 @@ class Mapper(object):
                 outer_joint_iters = 1
                 lr_factor = cfg['mapping']['lr_first_factor'] #初始化时学习率times
                 num_joint_iters = cfg['mapping']['iters_first'] #初始的总迭代次数很大
-
+            # 当使用prior pose track时 这里可能nan tensor 但还是要开启mapping!
             cur_c2w = self.estimate_c2w_list[idx].to(self.device)
             num_joint_iters = num_joint_iters//outer_joint_iters # 注意这里除法 300/3=100 imap* 这个策略很莫名其妙。。
             for outer_joint_iter in range(outer_joint_iters):
@@ -673,18 +808,21 @@ class Mapper(object):
                     not self.coarse_mapper)
 
                 _ = self.optimize_map(num_joint_iters, lr_factor, idx, gt_color, gt_depth,
-                                      gt_c2w, self.keyframe_dict, self.keyframe_list, cur_c2w=cur_c2w)
+                                      gt_c2w, self.keyframe_dict, self.keyframe_list, cur_c2w=cur_c2w, 
+                                      keypt=keypt) # 增加了keypt的输入
                 if self.BA:
-                    cur_c2w = _
+                    cur_c2w = _ # 用返回值更新pose 当使用prior pose 时 窗口内不在包含当前帧 那么这里就还是nan tensor!
                     self.estimate_c2w_list[idx] = cur_c2w
 
                 # add new frame to keyframe set 这里也不是靠information gain来生成kf啊
+                # keyfrrame dict 要增加保存当前最新的coarse depth, 还有不变的keypt
                 if outer_joint_iter == outer_joint_iters-1: # idx % self.keyframe_every == 0 or 删去此条件 为了kf基本等同orb 的kf
                     if ((idx == self.n_img-2) or (not torch.isnan(gt_depth).all().item()) ) \
                             and (idx not in self.keyframe_list):
                         self.keyframe_list.append(idx) #关键帧列表 以 frame_id组成
                         self.keyframe_dict.append({'gt_c2w': gt_c2w.cpu(), 'idx': idx, 'color': gt_color.cpu(
-                        ), 'depth': gt_depth.cpu(), 'est_c2w': cur_c2w.clone()})
+                        ), 'keypt': keypt.cpu(), # 前面这些都是定值，后面的是需要优化后不断更新
+                        'depth': gt_depth.cpu(), 'est_c2w': cur_c2w.clone()})
 
             if self.low_gpu_mem:
                 torch.cuda.empty_cache()

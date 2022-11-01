@@ -37,6 +37,7 @@ class Mesher(object):
         self.color_mesh_extraction_method = cfg['meshing']['color_mesh_extraction_method']
         self.get_largest_components = cfg['meshing']['get_largest_components']
         self.depth_test = cfg['meshing']['depth_test']
+        self.less_sample_space = slam.less_sample_space # 是否在 surface 附近区间多重采样,对应不同的render_batch
         
         self.bound = slam.bound
         self.nice = slam.nice
@@ -546,7 +547,7 @@ class Mesher(object):
                         rays_d_batch = rays_d[i:i+batch_size]
                         rays_o_batch = rays_o[i:i+batch_size]
                         gt_depth_batch = gt_depth[i:i+batch_size]
-                        depth, uncertainty, color = self.renderer.render_batch_ray(
+                        depth, uncertainty, color, _, _ = self.renderer.render_batch_ray(
                             c, decoders, rays_d_batch, rays_o_batch, device, 
                             stage='color', gt_depth=gt_depth_batch)
                         color_list.append(color)

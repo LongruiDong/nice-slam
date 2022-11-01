@@ -14,7 +14,11 @@ class Renderer(object):
         self.N_surface = cfg['rendering']['N_surface']
         self.N_importance = cfg['rendering']['N_importance'] #用处是啥
         self.emperical_range = float(cfg['rendering']['emperical_range'])
-
+        self.less_sample_space = slam.less_sample_space # 是否在 surface 附近区间多重采样,对应不同的render_batch
+        self.use_KL_loss = slam.use_KL_loss # 是否使用ds-nerf的sigma loss, 对应于调用不同的底层raw2outputs 函数
+        self.up_sample_steps = cfg['rendering']['up_sample_steps'] # 在表面附件多重采样的次数 每次 N_surface//up_sample_steps
+        # Ref: https://github.com/dunbar12138/DSNeRF/blob/main/loss.py KL 散度loss sigma_loss 的参数
+        self.raw_noise_std = cfg['rendering']['raw_noise_std'] # 默认1.0 其实对于occpancy用不上
         self.scale = cfg['scale']
         self.occupancy = cfg['occupancy']
         self.nice = slam.nice
@@ -63,10 +67,46 @@ class Renderer(object):
         ret = torch.cat(rets, dim=0)
         return ret
 
+    def finer_sample(self, c, decoders, z_vals, rays_d, rays_o, N_importance, device, stage):
+        """
+        因为目前涉及到多次coarse to fine 采样 所以搞一个专门的函数来做
+        在给定先前采样的下标, 再此render的结果上再进行按分布进一步采样
+        注意这里的输入 是否有深度 要对应上！
+        Args:
+            c (_type_): _description_
+            decoders (_type_): _description_
+            z_vals (_type_): _description_
+            rays_d (_type_): _description_
+            rays_o (_type_): _description_
+            N_importance (_type_): 本次细化需要增加的采样数
+            device (_type_): _description_
+        """
+        N_rays = rays_o.shape[0]
+        N_samples = z_vals.shape[1]
+        pts = rays_o[..., None, :] + rays_d[..., None, :] * \
+            z_vals[..., :, None]  # [N_rays, N_samples, 3] z_val 才是实际的t
+        pointsf = pts.reshape(-1, 3)
+
+        raw = self.eval_points(pointsf, decoders, c, stage, device)
+        raw = raw.reshape(N_rays, N_samples, -1)
+        # 只是为了拿到更细采样点 并不需要得到KL loss
+        _, _, _, weights, _ = raw2outputs_nerf_color(
+            raw, z_vals, rays_d, occupancy=self.occupancy, device=device)
+        
+        z_vals_mid = .5 * (z_vals[..., 1:] + z_vals[..., :-1])
+        z_samples = sample_pdf(
+            z_vals_mid, weights[..., 1:-1], N_importance, det=(self.perturb == 0.), device=device)
+        z_samples = z_samples.detach()
+        # z_vals, _ = torch.sort(torch.cat([z_vals, z_samples], -1), -1)
+        # 返回的是增加的样本位置
+        return z_samples
+        
+        
     def render_batch_ray_tri(self, c, decoders, rays_d, rays_o, device, stage, gt_depth=None):
         """
+        此函数是在使用深度prior的版本
         Render color, depth and uncertainty of a batch of rays. imap 和 nice-slam公共的代码 在query mlp 时会区分开
-        将原batch 分为 由深度 和无深度两类 采用不同的采样策略
+        将原batch 分为 由深度 和无深度两类 采用不同的采样策略,还是基础的coarse全都做 这样方便拼接
         Args:
             c (dict): feature grids.
             decoders (nn.module): decoders.
@@ -94,11 +134,11 @@ class Renderer(object):
             N_surface = 0
             near = 0.01 # 没有深度时 这表示 几乎从rays_O开始吧
         else: # 还是会用深度 得到 near 相对有个先验 吧
-            gt_depth = gt_depth.reshape(-1, 1)
-            gt_none_zero_mask = gt_depth > 0
-            # 分为两部分
-            near_base = torch.full(size=gt_depth.shape, fill_value=0.1*torch.min(gt_depth)) # (N,1)
-            near_base[gt_none_zero_mask] = 0.8 * gt_depth[gt_none_zero_mask]
+            gt_depth = gt_depth.reshape(-1, 1) # (N,1)
+            gt_none_zero_mask = gt_depth > 0 # (N,1)
+            # 分为两部分 暂时还是需要coarse level 大range
+            near_base = torch.full(size=gt_depth.shape, fill_value=0.01, device=device) # (N,1) 0.1*torch.min(gt_depth)
+            near_base[gt_none_zero_mask] = 0.1 * gt_depth[gt_none_zero_mask] # 0.8
             near = near_base.repeat(1, N_samples) # (N,sam#)
 
         with torch.no_grad():
@@ -115,31 +155,7 @@ class Renderer(object):
             far = torch.clamp(far_bb, 0,  torch.max(gt_depth*1.2)) # (N, 1)
         else:
             far = far_bb
-        if N_surface > 0:
-            # gt_none_zero_mask = gt_depth > 0
-            gt_none_zero = gt_depth[gt_none_zero_mask] # (N)
-            gt_none_zero = gt_none_zero.unsqueeze(-1) # (N,1)
-            gt_depth_surface = gt_none_zero.repeat(1, N_surface)
-            t_vals_surface = torch.linspace(
-                0., 1., steps=N_surface).double().to(device)
-            # emperical range 0.05*depth # 这个超参数本来就是经验性的 改为 0.2 因为要在这里 多重采样
-            z_vals_surface_depth_none_zero = (1-self.emperical_range)*gt_depth_surface * \
-                (1.-t_vals_surface) + (1+self.emperical_range) * \
-                gt_depth_surface * (t_vals_surface) # (N, Surf) 每行都是给定的区间 在 当前depth
-            # z_vals_surface = torch.zeros(
-            #     gt_depth.shape[0], N_surface).to(device).double()
-            # gt_none_zero_mask = gt_none_zero_mask.squeeze(-1)
-            # z_vals_surface[gt_none_zero_mask,
-            #                 :] = z_vals_surface_depth_none_zero
-            # near_surface = 0.001
-            # far_surface = torch.max(gt_depth)
-            # z_vals_surface_depth_zero = near_surface * \
-            #     (1.-t_vals_surface) + far_surface * (t_vals_surface)
-            # z_vals_surface_depth_zero.unsqueeze(
-            #     0).repeat((~gt_none_zero_mask).sum(), 1)
-            # z_vals_surface[~gt_none_zero_mask,
-            #                 :] = z_vals_surface_depth_zero
-            # 由于要 分开两部分进行 采样并rendering 为了能自由设置各自部分采样数 所以分开render到结果 再在最终位置去拼接
+        
         t_vals = torch.linspace(0., 1., steps=N_samples, device=device) # [0,1] 等距采样N_samp个点
 
         # 有了初步的near far 后 可以选择是否退火 to do
@@ -156,9 +172,84 @@ class Renderer(object):
             # stratified samples in those intervals
             t_rand = torch.rand(z_vals.shape).to(device)
             z_vals = lower + (upper - lower) * t_rand
+        
+        if N_surface > 0:
+            # gt_none_zero_mask = gt_depth > 0
+            # 看了其他的代码 还都是没有那样分开 分成有无深度的区域来进行
+            gt_none_zero = gt_depth[gt_none_zero_mask] # (N) 对于render img是 某一个batch可能全是0
+            gt_none_zero = gt_none_zero.unsqueeze(-1) # (N_,1)
+            gt_none_zero_mask = gt_none_zero_mask.squeeze(-1) # ->(N)要不要放这里？
+            z_vals_surface = torch.zeros(
+                gt_depth.shape[0], N_surface).to(device).double()
+            # 对于depth zero的部分 就在初次采样基础上 直接再来一次
+            z_samples_zero = self.finer_sample(c, decoders, z_vals[~gt_none_zero_mask],
+                                               rays_d[~gt_none_zero_mask], rays_o[~gt_none_zero_mask],
+                                               N_surface, device, stage)
+            # z_vals_mid = .5 * (z_vals[..., 1:] + z_vals[..., :-1])
+            # z_vals_mid_zero = z_vals_mid[~gt_none_zero_mask]
+            # weights_zero = weights[~gt_none_zero_mask]
+            # z_samples_zero = sample_pdf( # 多层采样
+            #     z_vals_mid_zero, weights_zero[..., 1:-1], N_surface, det=(self.perturb == 0.), device=device)
+            # z_samples_zero = z_samples_zero.detach()
+            z_vals_surface[~gt_none_zero_mask,
+                            :] = z_samples_zero # to debug shape
+            
+            if gt_none_zero.shape[0]>0: # 当遇到此情况 不再进行下面的小区域内coarse2fine
+                # 开始循环 >=2多次来采样 这里只是对于 none_zero的部分
+                N_surface_i = N_surface // self.up_sample_steps # 每次循环时需要的采样次数
+                gt_depth_surface = gt_none_zero.repeat(1, N_surface_i)
+                t_vals_surface = torch.linspace(
+                    0., 1., steps=N_surface_i).double().to(device)
+                # emperical range 0.05*depth # 这个超参数本来就是经验性的 改为 0.2 因为要在这里 多重采样
+                z_vals_surface_depth_none_zero = (1-self.emperical_range)*gt_depth_surface * \
+                    (1.-t_vals_surface) + (1+self.emperical_range) * \
+                    gt_depth_surface * (t_vals_surface) # (N, Surf) 每行都是给定的区间 在 当前depth
+                z_surface_last = z_vals_surface_depth_none_zero.detach() # 这是先得到表面附近区间 初始样本位置
+                
+                if self.up_sample_steps>1:    
+                    for i in range(1, self.up_sample_steps):
+                        if self.perturb > 0.:
+                            # get intervals between samples
+                            mids = .5 * (z_surface_last[..., 1:] + z_surface_last[..., :-1])
+                            upper = torch.cat([mids, z_surface_last[..., -1:]], -1)
+                            lower = torch.cat([z_surface_last[..., :1], mids], -1)
+                            # stratified samples in those intervals
+                            t_rand = torch.rand(z_surface_last.shape).to(device)
+                            z_surface_last = lower + (upper - lower) * t_rand
+                        z_surface_i = self.finer_sample(c, decoders, z_surface_last,
+                                                rays_d[gt_none_zero_mask], rays_o[gt_none_zero_mask],
+                                                N_surface_i, device, stage)
+                        # pts = rays_o[gt_none_zero_mask, None, :] + rays_d[gt_none_zero_mask, None, :] * \
+                        # z_surface_last[..., :, None]  # [N_rays, N_surface_i, 3] z_val 才是实际的t
+                        # pointsf = pts.reshape(-1, 3)
+
+                        # raw = self.eval_points(pointsf, decoders, c, stage, device)
+                        # raw = raw.reshape(N_rays, N_surface_i, -1)
+
+                        # depth, uncertainty, color, weights = raw2outputs_nerf_color(
+                        #     raw, z_surface_last, rays_d, occupancy=self.occupancy, device=device)
+                        
+                        # z_vals_mid = .5 * (z_vals[..., 1:] + z_vals[..., :-1])
+                        # z_samples = sample_pdf( # 多层采样
+                        #     z_vals_mid, weights[..., 1:-1], N_importance, det=(self.perturb == 0.), device=device)
+                        # z_samples = z_samples.detach()
+                        z_surface_last, _ = torch.sort(torch.cat([z_surface_last, z_surface_i], -1), -1)
+                        
+                # 经过上面多次采样, 得到非0部分的样本        
+                z_vals_surface[gt_none_zero_mask,
+                                :] = z_surface_last
+            
+        # if self.perturb > 0.: 前面已经有过一次了
+        #     # get intervals between samples
+        #     mids = .5 * (z_vals[..., 1:] + z_vals[..., :-1])
+        #     upper = torch.cat([mids, z_vals[..., -1:]], -1)
+        #     lower = torch.cat([z_vals[..., :1], mids], -1)
+        #     # stratified samples in those intervals
+        #     t_rand = torch.rand(z_vals.shape).to(device)
+        #     z_vals = lower + (upper - lower) * t_rand
 
         if N_surface > 0:
-            z_vals, _ = torch.sort( # 每一行 把 各自采样拼起来 concat 并每行排序
+            z_vals, _ = torch.sort( # 每一行 把 各自采样拼起来 concat 并每行排序  [N_rays, N_samples+N_surface]
                 torch.cat([z_vals, z_vals_surface.double()], -1), -1)
 
         pts = rays_o[..., None, :] + rays_d[..., None, :] * \
@@ -167,14 +258,16 @@ class Renderer(object):
 
         raw = self.eval_points(pointsf, decoders, c, stage, device)
         raw = raw.reshape(N_rays, N_samples+N_surface, -1)
-
-        depth, uncertainty, color, weights = raw2outputs_nerf_color(
-            raw, z_vals, rays_d, occupancy=self.occupancy, device=device)
+        sigma_loss = None # 只有在最后 要输出最后结果时 才设置是否使用KL loss
+        depth, uncertainty, color, weights, sigma_loss = raw2outputs_nerf_color(
+            raw, z_vals, rays_d, occupancy=self.occupancy, device=device,
+            coarse_depths=gt_depth)
+        
         # # 根据regnerf 由weights 进一步得到 rendering['acc'] 来用到 depth patch loss
         # regacc = weights.sum(axis=-1) # (batchsize)
-        if N_importance > 0:
+        if N_importance > 0: # 在整个所有前面基础上, 再重复采样 
             z_vals_mid = .5 * (z_vals[..., 1:] + z_vals[..., :-1])
-            z_samples = sample_pdf(
+            z_samples = sample_pdf( # 多层采样
                 z_vals_mid, weights[..., 1:-1], N_importance, det=(self.perturb == 0.), device=device)
             z_samples = z_samples.detach()
             z_vals, _ = torch.sort(torch.cat([z_vals, z_samples], -1), -1)
@@ -185,11 +278,12 @@ class Renderer(object):
             raw = self.eval_points(pts, decoders, c, stage, device)
             raw = raw.reshape(N_rays, N_samples+N_importance+N_surface, -1)
 
-            depth, uncertainty, color, weights = raw2outputs_nerf_color(
-                raw, z_vals, rays_d, occupancy=self.occupancy, device=device)
-            return depth, uncertainty, color
+            depth, uncertainty, color, weights, sigma_loss = raw2outputs_nerf_color(
+                raw, z_vals, rays_d, occupancy=self.occupancy, device=device,
+                coarse_depths=gt_depth) # if self.use_KL_loss else None
+            return depth, uncertainty, color, weights, sigma_loss
 
-        return depth, uncertainty, color
+        return depth, uncertainty, color, weights, sigma_loss
 
     def render_batch_ray(self, c, decoders, rays_d, rays_o, device, stage, gt_depth=None):
         """
@@ -307,9 +401,9 @@ class Renderer(object):
 
         raw = self.eval_points(pointsf, decoders, c, stage, device)
         raw = raw.reshape(N_rays, N_samples+N_surface, -1)
-
-        depth, uncertainty, color, weights = raw2outputs_nerf_color(
-            raw, z_vals, rays_d, occupancy=self.occupancy, device=device)
+        # 此函数里 就不使用 sigma_loss
+        depth, uncertainty, color, weights, sigma_loss = raw2outputs_nerf_color(
+            raw, z_vals, rays_d, occupancy=self.occupancy, device=device, coarse_depths=gt_depth)
         # # 根据regnerf 由weights 进一步得到 rendering['acc'] 来用到 depth patch loss
         # regacc = weights.sum(axis=-1) # (batchsize)
         if N_importance > 0:
@@ -325,11 +419,11 @@ class Renderer(object):
             raw = self.eval_points(pts, decoders, c, stage, device)
             raw = raw.reshape(N_rays, N_samples+N_importance+N_surface, -1)
 
-            depth, uncertainty, color, weights = raw2outputs_nerf_color(
-                raw, z_vals, rays_d, occupancy=self.occupancy, device=device)
-            return depth, uncertainty, color
+            depth, uncertainty, color, weights, sigma_loss = raw2outputs_nerf_color(
+                raw, z_vals, rays_d, occupancy=self.occupancy, device=device, coarse_depths=gt_depth)
+            return depth, uncertainty, color, weights, sigma_loss
 
-        return depth, uncertainty, color
+        return depth, uncertainty, color, weights, sigma_loss
 
     def render_img(self, c, decoders, c2w, device, stage, gt_depth=None):
         """
@@ -361,23 +455,33 @@ class Renderer(object):
             color_list = []
 
             ray_batch_size = self.ray_batch_size
-            gt_depth = gt_depth.reshape(-1)
+            if gt_depth is not None:
+                gt_depth = gt_depth.reshape(-1)
 
             for i in range(0, rays_d.shape[0], ray_batch_size):
                 rays_d_batch = rays_d[i:i+ray_batch_size]
                 rays_o_batch = rays_o[i:i+ray_batch_size]
                 if gt_depth is None:
-                    ret = self.render_batch_ray(
-                        c, decoders, rays_d_batch, rays_o_batch, device, stage, gt_depth=None)
+                    if self.less_sample_space:
+                        ret = self.render_batch_ray_tri(
+                            c, decoders, rays_d_batch, rays_o_batch, device, stage, gt_depth=None)
+                    else:
+                        ret = self.render_batch_ray(
+                            c, decoders, rays_d_batch, rays_o_batch, device, stage, gt_depth=None)
                 else:
                     gt_depth_batch = gt_depth[i:i+ray_batch_size]
-                    ret = self.render_batch_ray(
-                        c, decoders, rays_d_batch, rays_o_batch, device, stage, gt_depth=gt_depth_batch)
+                    if self.less_sample_space:
+                        ret = self.render_batch_ray_tri(
+                            c, decoders, rays_d_batch, rays_o_batch, device, stage, gt_depth=gt_depth_batch) # 只需要前3个输出 不要loss
+                    else:
+                        ret = self.render_batch_ray(
+                            c, decoders, rays_d_batch, rays_o_batch, device, stage, gt_depth=gt_depth_batch)
 
-                depth, uncertainty, color = ret
+                depth, uncertainty, color, weights, sigma_loss = ret # 这里的输出不同 但sigma_loss可能仍是None
                 depth_list.append(depth.double())
                 uncertainty_list.append(uncertainty.double())
                 color_list.append(color)
+                # img 内的 weights 切片可视化检验 debug
 
             depth = torch.cat(depth_list, dim=0)
             uncertainty = torch.cat(uncertainty_list, dim=0)
@@ -391,7 +495,7 @@ class Renderer(object):
     # this is only for imap*
     def regulation(self, c, decoders, rays_d, rays_o, gt_depth, device, stage='color'):
         """
-        Regulation that discourage any geometry from the camera center to 0.85*depth.        
+        Regulation that discourage any geometry from the camera center to 0.85*depth.  0.85这个数字！       
         For imap, the geometry will not be as good if this loss is not added.
 
         Args:
@@ -426,5 +530,52 @@ class Renderer(object):
             z_vals[..., :, None]  # (N_rays, N_samples, 3)
         pointsf = pts.reshape(-1, 3)
         raw = self.eval_points(pointsf, decoders, c, stage, device)
-        sigma = raw[:, -1]
+        sigma = raw[:, -1] # imap 这里的值域[0,1]
+        return sigma
+    
+    # 对于 nice-slam 的 occupancy
+    def regulation_occ(self, c, decoders, rays_d, rays_o, gt_depth, device, stage='color'):
+        """
+        Regulation that discourage any geometry from the camera center to 0.85*depth.  0.85这个数字！       
+        For imap, the geometry will not be as good if this loss is not added.
+
+        Args:
+            c (dict): feature grids.
+            decoders (nn.module): decoders.
+            rays_d (tensor, N*3): rays direction.
+            rays_o (tensor, N*3): rays origin.
+            gt_depth (tensor): 应该是非全0的 coarse depth prior
+            device (str): device name to compute on.
+            stage (str, optional):  query stage. Defaults to 'color'.
+
+        Returns:
+            sigma (tensor, N): volume density of sampled points.
+        """
+        gt_depth = gt_depth.reshape(-1, 1)
+        gt_none_zero_mask = gt_depth > 0
+        gt_none_zero = gt_depth[gt_none_zero_mask]
+        gt_none_zero_mask = gt_none_zero_mask.squeeze(-1)
+        gt_none_zero = gt_none_zero.unsqueeze(-1)
+        gt_depth_surface = gt_none_zero.repeat(1, self.N_samples)
+        t_vals = torch.linspace(0., 1., steps=self.N_samples).to(device)
+        near = 0.0
+        far = gt_depth_surface*0.85
+        z_vals = near * (1.-t_vals) + far * (t_vals)
+        perturb = 1.0
+        if perturb > 0.:
+            # get intervals between samples
+            mids = .5 * (z_vals[..., 1:] + z_vals[..., :-1])
+            upper = torch.cat([mids, z_vals[..., -1:]], -1)
+            lower = torch.cat([z_vals[..., :1], mids], -1)
+            # stratified samples in those intervals
+            t_rand = torch.rand(z_vals.shape).to(device)
+            z_vals = lower + (upper - lower) * t_rand
+
+        pts = rays_o[gt_none_zero_mask, None, :] + rays_d[gt_none_zero_mask, None, :] * \
+            z_vals[..., :, None]  # (N_rays, N_samples, 3)
+        pointsf = pts.reshape(-1, 3)
+        raw = self.eval_points(pointsf, decoders, c, stage, device) # (N_rays*N_samples, 4)
+        # sigma = raw[:, -1] # (N_rays*N_samples)
+        # 或者返回 占据概率的值  两者的值最后abs sum后不同吧
+        sigma = torch.sigmoid(10*raw[:, -1])
         return sigma

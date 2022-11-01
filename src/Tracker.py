@@ -28,6 +28,7 @@ class Tracker(object):
         self.rgbonly = slam.rgbonly
         self.guide_sample = slam.guide_sample
         self.use_prior = slam.use_prior
+        self.less_sample_space = slam.less_sample_space # 是否在 surface 附近区间多重采样,对应不同的render_batch
         self.idx = slam.idx
         self.nice = slam.nice
         self.bound = slam.bound
@@ -50,6 +51,7 @@ class Tracker(object):
         self.device = cfg['tracking']['device']
         self.num_cam_iters = cfg['tracking']['iters']
         self.gt_camera = cfg['tracking']['gt_camera']
+        self.prior_camera = cfg['tracking']['prior_camera'] # 控制初值是否用prior kf的位姿
         self.tracking_pixels = cfg['tracking']['pixels']
         self.seperate_LR = cfg['tracking']['seperate_LR']
         self.w_color_loss = cfg['tracking']['w_color_loss']
@@ -112,10 +114,19 @@ class Tracker(object):
             batch_rays_o = batch_rays_o[inside_mask]
             batch_gt_depth = batch_gt_depth[inside_mask]
             batch_gt_color = batch_gt_color[inside_mask]
-
-        ret = self.renderer.render_batch_ray(
-            self.c, self.decoders, batch_rays_d, batch_rays_o,  self.device, stage='color',  gt_depth=None if ( self.coarse_mapper or (not self.guide_sample) ) else batch_gt_depth) # 突然意识到之前这里 还是会根据gt depth 采样ray上表面附近的
-        depth, uncertainty, color = ret
+        
+        tmp = torch.zeros(batch_gt_depth.shape, device=self.device)
+        if torch.equal(tmp, batch_gt_depth): # 若当前帧是非orb kf 就不用它来render 否则全黑
+            validflag = False
+        else:
+            validflag = True
+        if self.less_sample_space:
+            ret = self.renderer.render_batch_ray_tri( # 因为只是优化pose 这里不需要sigma loss 输出
+                self.c, self.decoders, batch_rays_d, batch_rays_o,  self.device, stage='color',  gt_depth=None if ( self.coarse_mapper or (not self.guide_sample) or (not validflag) ) else batch_gt_depth) # 突然意识到之前这里 还是会根据gt depth 采样ray上表面附近的
+        else:
+            ret = self.renderer.render_batch_ray(
+                self.c, self.decoders, batch_rays_d, batch_rays_o,  self.device, stage='color',  gt_depth=None if ( self.coarse_mapper or (not self.guide_sample) or (not validflag) ) else batch_gt_depth) # 突然意识到之前这里 还是会根据gt depth 采样ray上表面附近的
+        depth, uncertainty, color, weights, sigma_loss = ret # 这里的输出不同 但sigma_loss可能仍是None
 
         uncertainty = uncertainty.detach()
         if self.handle_dynamic: # 处理运动物体
@@ -167,12 +178,14 @@ class Tracker(object):
             pbar = self.frame_loader
         else:
             pbar = tqdm(self.frame_loader)
-
-        for idx, gt_color, gt_depth, gt_c2w, _ in pbar: # 
+        # gt_depth 这里可能是prior coarse depth, prior_c2w(后续可以以此代替gt位姿), keypt
+        for idx, gt_color, gt_depth, gt_c2w, prior_c2w, _ in pbar: 
             if not self.verbose:
                 pbar.set_description(f"Tracking Frame {idx[0]}")
 
-            idx = idx[0] # 
+            idx = idx[0] #
+            if len(prior_c2w.shape) >2:
+                prior_c2w = prior_c2w[0]
             if type(idx) == torch.Tensor:
                idx = idx.item() 
             gt_depth = gt_depth[0]
@@ -202,8 +215,16 @@ class Tracker(object):
                 print("Tracking Frame ",  idx)
                 print(Style.RESET_ALL)
 
-            if idx == 0 or self.gt_camera: # gt_camera的含义？
-                c2w = gt_c2w
+            if idx == 0 or self.gt_camera or self.prior_camera: # 选择prior kf pose
+                if idx == 0:
+                    c2w = gt_c2w
+                elif self.gt_camera and (not self.prior_camera):
+                    c2w = gt_c2w
+                elif (not self.gt_camera) and self.prior_camera:
+                    c2w = prior_c2w # 可能为nan tensor
+                elif self.gt_camera and self.prior_camera:
+                    assert False, f"prior pose not along with gt pose !"
+                    
                 if not self.no_vis_on_first_frame and (not torch.isnan(gt_depth).all().item()):
                     self.visualizer.vis(
                         idx, 0, gt_depth, gt_color, c2w, self.c, self.decoders,
@@ -247,10 +268,10 @@ class Tracker(object):
                 for cam_iter in range(self.num_cam_iters):
                     if self.seperate_LR:
                         camera_tensor = torch.cat([quad, T], 0).to(self.device)
-
-                    self.visualizer.vis(
-                        idx, cam_iter, gt_depth, gt_color, camera_tensor, self.c, self.decoders,
-                        selecti=self.slecti, selectj=self.slectj)
+                    if not torch.isnan(gt_depth).all().item():
+                        self.visualizer.vis(
+                            idx, cam_iter, gt_depth, gt_color, camera_tensor, self.c, self.decoders,
+                            selecti=self.slecti, selectj=self.slectj)
 
                     loss = self.optimize_cam_in_batch( # frame 25(375,1242)
                         camera_tensor, gt_color, gt_depth, self.tracking_pixels, optimizer_camera)

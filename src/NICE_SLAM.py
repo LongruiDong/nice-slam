@@ -32,6 +32,8 @@ class NICE_SLAM():
         # 和 prior coarse geometry 有关的设置参数
         self.use_prior = cfg['use_prior'] # 是否载入 est depth 作为 gt deptj
         self.guide_sample = cfg['guidesample']
+        self.less_sample_space = cfg['rendering']['less_sample_space'] # 是否在 surface 附近区间多重采样,对应不同的render_batch
+        self.use_KL_loss = cfg['rendering']['use_KL_loss'] # 是否使用ds-nerf的sigma loss, 对应于调用不同的raw2output 函数
         self.rgbonly = cfg['rgbonly']
         self.coarse = cfg['coarse']
         self.occupancy = cfg['occupancy']
@@ -73,6 +75,13 @@ class NICE_SLAM():
         # print('use noise depth {}'.format(self.frame_reader.wnoise))
         print('use depth guide sample? : {}'.format(self.guide_sample))
         self.n_img = len(self.frame_reader)
+        
+        if self.use_prior: # 若是先验模式 就增加slam的成员变量保存 3d点 都已经是tensor
+            # 对3d点的处理都是仿照 shared_c
+            # self.prior_xyzs = self.frame_reader.prior_xyzs
+            self.prior_xyzs_dict = self.frame_reader.prior_xyzs_dict
+            self.prior_3dobs_dict = self.frame_reader.prior_3dobs_dict
+
         self.estimate_c2w_list = torch.zeros((self.n_img, 4, 4))
         self.estimate_c2w_list.share_memory_()
         # 关于位姿
@@ -91,6 +100,14 @@ class NICE_SLAM():
             val = val.to(self.cfg['mapping']['device']) #在grid 很大时 会出现out of memory
             val.share_memory_()
             self.shared_c[key] = val
+        for key, val in self.prior_xyzs_dict.items(): # 这样总的3d点是否又会占很多显存？
+            val = val.to(self.cfg['mapping']['device'])
+            val.share_memory_()
+            self.prior_xyzs_dict[key] = val
+        for key, val in self.prior_3dobs_dict.items(): # 现有的3d到2d的对应关系
+            val = val.to(self.cfg['mapping']['device'])
+            val.share_memory_()
+            self.prior_3dobs_dict[key] = val
         self.shared_decoders = self.shared_decoders.to(
             self.cfg['mapping']['device'])
         self.shared_decoders.share_memory()

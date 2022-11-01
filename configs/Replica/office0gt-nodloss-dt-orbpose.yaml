@@ -6,8 +6,8 @@ use_prior: True # 是否载入作为先验的 pose 和depth 这里暂时depth �
 rgbonly: True # 增加选项 是否为单目模式 即无depth loss
 guidesample: True # 增加选项 测试深度引导对在线的作用
 tracking:
-  gt_camera: True #? True False
-  prior_camera: False # 增加选项track就用先验位姿做初值
+  gt_camera: False #? True False
+  prior_camera: True # 增加选项track就用先验位姿做初值
   vis_freq: 1
 mapping:
   bound: [[-5.5,5.9],[-6.7,5.4],[-4.7,5.3]]
@@ -30,7 +30,7 @@ mapping:
   mesh_freq: 500
   save_selected_keyframes_info: True
   frustum_feature_selection: False
-  keyframe_selection_method: 'prior' # 'overlap'当wo gt depth就不能用 prior 即使用来自orb的2d-3d对应关系来寻找共视kf 
+  keyframe_selection_method: 'global' #  global 'overlap'当wo gt depth就不能用 prior 即使用来自orb的2d-3d对应关系来寻找共视kf 
 rendering:
   N_samples: 32 #N_strat
   N_surface: 32 #在深度周围 16| 0 
@@ -40,7 +40,7 @@ rendering:
   emperical_range: 0.05 # 增加参数控制 surface 的range 比例 0.05| 0.1 0.15
 data:
   input_folder: Datasets/Replica/office0
-  output: output/Replica_prior/office0gt-nogtd-resize2-debug # -woguide -it1k  ertune office0gt-nodloss1-woNsurf-Ni32-p1k-f4k-it4k-init
+  output: output/Replica_prior/office0gt-nogtd-resize2-orbpose-kfglobal # -woguide -it1k  ertune office0gt-nodloss1-woNsurf-Ni32-p1k-f4k-it4k-init
   prior_folder: /home/dlr/Project1/ORB_SLAM2_Enhanced/result
 cam:
   depth_trunc: 8 # add for limit bound discard larger depth -1| 对于prior depth 得用

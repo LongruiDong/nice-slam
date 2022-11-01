@@ -25,13 +25,13 @@ mapping:
   vis_inside_freq: 30 # 30| 200 60
   middle_iter_ratio: -1. # 0.4 # rgbonly时 只有color stage
   fine_iter_ratio: -1. # 0.6
-  every_frame: 5 # 5| 25 和 离线的80kf来对比
+  every_frame: 25 # 5| 25 和 离线的80kf来对比
   keyframe_every: 50
   mesh_freq: 500
   save_selected_keyframes_info: True
   frustum_feature_selection: False
   keyframe_selection_method: 'global' # 'overlap'当wo gt depth就不能用 prior 即使用来自orb的2d-3d对应关系来寻找共视kf 
-  # color_loss_mask: True
+  color_loss_mask: True
 rendering:
   N_samples: 32 #N_strat
   N_surface: 32 #在深度周围 16| 0 
@@ -47,10 +47,10 @@ rendering:
   sigma_lambda: 0.1 # 权重因子 used for KL loss
 data:
   input_folder: Datasets/Replica/office0
-  output: output/Replica_prior/office0gt-nogtd-debug-kfglobal-less-map5hz # -woguide -it1k -resize2 ertune office0gt-nodloss1-woNsurf-Ni32-p1k-f4k-it4k-init
+  output: output/Replica_prior/office0gt-nogtd-debug-kfglobal-less-colormask # -woguide -it1k -resize2 ertune office0gt-nodloss1-woNsurf-Ni32-p1k-f4k-it4k-init
   prior_folder: /home/dlr/Project1/ORB_SLAM2_Enhanced/result
 cam:
   depth_trunc: 8 # add for limit bound discard larger depth -1| 对于prior depth 得用
   # 增加根据dnet预测的深度的不确定性来prune pred depth
   dstdv_cut_max: -1  # 对于office 实际最大值在0.35左右 0.25 0.2 0.15
-  # crop_size: [340,600] # 为了和离线公平对比 使用一半大小的图片
+  crop_size: [340,600] # 为了和离线公平对比 使用一半大小的图片

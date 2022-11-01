@@ -32,6 +32,8 @@ mapping:
   middle_iter_ratio: -1. # 0.4 # rgbonly时 只有color stage
   fine_iter_ratio: -1. # 0.6
   save_selected_keyframes_info: True
+  color_loss_mask: False # color loss 是否用depth mask
+  use_regulation: False # 对于nice 是否对深度前的区域正则化 sigma /occ
 cam:
   H: 680
   W: 1200
