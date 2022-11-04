@@ -120,17 +120,20 @@ class BaseDataset(Dataset):
                 depth_path = None # 用key 来看是否是kf
                 keypt_path = None
             else:
-                depth_path = f'{self.prior_folder}/triangulation/coarsedepth/cd' + '%04d' % index + '.png'
+                depth_path = f'{self.prior_folder}/prior/cd' + '%04d' % index + '.png'
                 # 同时载入本kf 关键点文件 ####.txt
-                keypt_path = f'{self.prior_folder}/' + '%04d' % index + '.txt'
+                keypt_path = f'{self.prior_folder}/keypt/' + '%04d' % index + '.txt'
         else:
             depth_path = self.depth_paths[index]
         color_data = cv2.imread(color_path)
-        if keypt_path is None:
-            keypt_data = None
-        else: # kptid u v 3dpid(-1表示没有对应) x(-1) y z
-            keypt_arr = np.loadtxt(keypt_path, skiprows=1)[:, :4] # (m,4)
-            keypt_data = torch.from_numpy(keypt_arr) # 这里kpt像素坐标 是在原图size上的
+        if self.use_prior:
+            if keypt_path is None:
+                keypt_data = None
+                prior_weight = torch.zeros_like(depth_data)
+            else: # kptid u v 3dpid(-1表示没有对应) x(-1) y z
+                keypt_arr = np.loadtxt(keypt_path, skiprows=1)[:, :4] # (m,4)
+                keypt_data = torch.from_numpy(keypt_arr) # 这里kpt像素坐标 是在原图size上的
+                prior_weight = self.kpt_weight[index] # 当前帧 Kpt 的权重(原图size) 大小和 稀疏重建时的重投影误差反比
         if depth_path is None:
             depth_data = None
         elif ('.png' in depth_path):
@@ -204,13 +207,16 @@ class BaseDataset(Dataset):
                 depth_data = F.interpolate(
                     depth_data[None, None], self.crop_size, mode='nearest')[0, 0]
             color_data = color_data.permute(1, 2, 0).contiguous()
-            # 此时 前面载入的kpt 的坐标也要同时resize
-            if keypt_data is not None:
-                # reszie比例
-                sx = self.crop_size[1] / W
-                sy = self.crop_size[0] / H
-                keypt_data[:, 1] *= sx
-                keypt_data[:, 2] *= sy # 后面取出的时候要四舍五入转整数
+            if self.use_prior:
+                # 此时 前面载入的kpt 的坐标也要同时resize
+                if keypt_data is not None:
+                    # reszie比例
+                    sx = self.crop_size[1] / W
+                    sy = self.crop_size[0] / H
+                    keypt_data[:, 1] *= sx
+                    keypt_data[:, 2] *= sy # 后面取出的时候要四舍五入转整数
+                prior_weight = F.interpolate( # resize 也要对权重插值 因为无kpt时 该矩阵全0 还要resize
+                    prior_weight[None, None], self.crop_size, mode='nearest')[0, 0]
 
         edge = self.crop_edge
         if edge > 0:
@@ -244,13 +250,13 @@ class BaseDataset(Dataset):
         pose_nan = torch.full(size=pose.shape, fill_value=float('nan')).to(self.device) # 只是代替None 的任一变量 shape 无所谓
         if self.use_prior:
             if depth_data is not None:    
-                return index, color_data.to(self.device), depth_data.to(self.device), pose.to(self.device), prior_pose.to(self.device), keypt_data.to(self.device)
+                return index, color_data.to(self.device), depth_data.to(self.device), pose.to(self.device), prior_pose.to(self.device), keypt_data.to(self.device), prior_weight.to(self.device)
             else: # 此时 depth 和 prior pose 都是none 为了dataloader 把none 改为 size 相同 但元素全为nan的tensor
                 # depth_nan = torch.full(size=color_data.shape, fill_value=float('nan')).to(self.device) # color_data.shape
                 # pose_nan = torch.full(size=pose.shape, fill_value=float('nan')).to(self.device)
-                return index, color_data.to(self.device), pose_nan, pose.to(self.device), pose_nan, pose_nan
+                return index, color_data.to(self.device), pose_nan, pose.to(self.device), pose_nan, pose_nan, prior_weight.to(self.device)
         else: # 正常模式
-            return index, color_data.to(self.device), depth_data.to(self.device), pose.to(self.device), pose_nan, pose_nan
+            return index, color_data.to(self.device), depth_data.to(self.device), pose.to(self.device), pose_nan, pose_nan, prior_weight.to(self.device)
                     
 
     def createpcd(self, w2c_mats, skip = 30):
@@ -297,9 +303,9 @@ class Replica(BaseDataset):
         if self.wnoise:
             self.depth_paths = sorted(
                 glob.glob(f'{self.input_folder}/mydnoise/depth*.png'))
-        elif self.use_prior: # 若使用prior 粗糙且不完整的depth 其实此时没用到
-            self.depth_paths = sorted(
-                glob.glob(f'{self.prior_folder}/triangulation/coarsedepth/cd*.png'))
+        # elif self.use_prior: # 若使用prior 粗糙且不完整的depth 其实此时没用到
+        #     self.depth_paths = sorted(
+        #         glob.glob(f'{self.prior_folder}/triangulation/coarsedepth/cd*.png'))
         else:
             self.depth_paths = sorted(
                 glob.glob(f'{self.input_folder}/results/depth*.png')) # results dnetpred 使用估计的深度
@@ -315,8 +321,55 @@ class Replica(BaseDataset):
             self.load_sparse_points(f'{self.prior_folder}/mappts.txt')
             # 在对位姿做完坐标系转换后 也会对 上面的原始orb 稀疏点云 做转换从而到对应的 nerf-pytorch坐标系
             self.load_prior_poses(f'{self.prior_folder}/KeyFrameTrajectory.txt')
+            # 对每个关键点 由prior的重投影误差计算不确定性 并给出不确定性map
+            self.keypt_paths = sorted(
+                glob.glob(f'{self.prior_folder}/keypt/*.txt'))
+            self.compute_uncertainty()
             
             
+    def compute_uncertainty(self):
+        # load sparse points已经保存了所有地图点的weight, 这里要覆盖到图像上
+        print('when use prior from sparse recon, save variance for kf ')  
+        self.kpt_weight = {} # 用字典保存 不确定性map
+        n_kf = len(self.keypt_paths) 
+        
+        for i in range(n_kf):
+            kpt_path = self.keypt_paths[i]
+            idx = int(kpt_path[-8:-4]) # 得到真实frame id
+            # kptid u v 3dpid(-1表示没有对应) x(-1) y z
+            keypt_arr = np.loadtxt(kpt_path, skiprows=1)[:, :4] # (m,4)
+            # keypt_data = torch.from_numpy(keypt_arr) # 这里kpt像素坐标 是在原图size上的
+            w_map = -np.zeros((self.H, self.W)) # 初始不确定性 全0 
+            # 拿出那些 由深度的 关键点
+            kt_arr = keypt_arr[keypt_arr[:, 3]>0]
+            
+            pdata = []
+            for j in range(kt_arr.shape[0]):
+                assert kt_arr[j, 3] >= 0
+                mpt_id = int(kt_arr[j, 3])
+                # 拿出对应地图点的 weigh
+                wt_mpt = self.orb_xyzs_dict[mpt_id][3] # list 里的最后一项
+                uj, vj = int(np.around(kt_arr[j, 1:3])[0]), int(np.around(kt_arr[j, 1:3])[1])  # 取整
+                # 赋值到 w_map
+                w_map[vj, uj] = wt_mpt
+                pdata+= [np.array([uj, vj, wt_mpt])]
+            pdata = np.stack(pdata, 0)
+            self.kpt_weight[idx] = torch.from_numpy(w_map)
+            
+            # # 可视化有效关键点权重
+            # rgbpath = self.color_paths[idx]
+            # color_data = cv2.imread(rgbpath) # h,w,3 unit8
+            # color_data = cv2.cvtColor(color_data, cv2.COLOR_BGR2RGB)
+            # color_data = color_data / 255.
+            # import matplotlib.pyplot as plt
+            # cm = plt.cm.get_cmap('RdYlBu')
+            # fig, axs = plt.subplots(1, 1)
+            # fig.tight_layout()
+            # axs.imshow(color_data, cmap="plasma") # imshow
+            # sc = axs.scatter(pdata[:, 0], pdata[:, 1], c=pdata[:, 2], s=5, cmap=cm)
+            # plt.colorbar(sc)
+            # plt.savefig(f'{self.prior_folder}/keypt/' + 'w%04d' % idx + '.jpg', dpi=200)
+                  
             
 
     def load_poses(self, path):
@@ -357,6 +410,7 @@ class Replica(BaseDataset):
         n_est = estpose.shape[0]
         print('load prior pose from {}, kf len: {}'.format(path, n_est))
         self.prior_poses = {}
+        self.orb_poses = {} # 只是保存 尺度对齐的 orb 坐标系下点云 
         if self.prior_scale is not None: # 如果需要 先对prior pose 的平移尺度恢复
             print('before 2 c2w, scale prior tum tq: {}'.format(self.prior_scale))
             estpose[:, 1:4] *= self.prior_scale
@@ -369,6 +423,7 @@ class Replica(BaseDataset):
         for (key, value) in dic_est.items():
             frameid = key # kf 的 frame id
             c2w = np.array(TQtoSE3(value))
+            self.orb_poses[frameid] = torch.from_numpy(c2w).float() # 直接保存尺度对齐的
             if inv_pose is None: # 首帧位姿归I 但是好像只有tum做了归一化处理 why
                 inv_pose = np.linalg.inv(c2w) #T0we
                 ew2gw = firstgtpose@inv_pose # Twg0@T0we = Twg we
@@ -381,6 +436,7 @@ class Replica(BaseDataset):
             c2w[:3, 2] *= -1
             c2w = torch.from_numpy(c2w).float()
             self.prior_poses[frameid] = c2w # 直接用字典 保存 对齐并 转换世界系的 prior kf pose
+            
         
         # 用Twg we 先把点云转换到同一个世界系下  再换为nerf 坐标
         xyzs = self.orb_xyzs # copy.deepcopy() 这里的点云已经做过尺度对齐了
@@ -423,7 +479,7 @@ class Replica(BaseDataset):
         3d点原本是认为在 首帧为世界系的坐标系下的 需要先转换到新的世界系下 
         然后 再由于是nerf-pytorch坐标系 y,z要取反
         Args:
-            path (str): orb-slam 输出的稀疏点云txt /home/dlr/Project1/ORB_SLAM2_Enhanced/result/mappts.txt
+            path (str): orb-slam 输出的稀疏点云txt /home/dlr/Project1/ORB_SLAM2_Enhanced/result/replica/office0/mappts.txt
         """
         
         # 载入 mapptsfile 以字典方式存吧  每行长度不一
@@ -435,11 +491,11 @@ class Replica(BaseDataset):
         for i in range(n_pts):
             line = lines[i]
             raw = line.split(' ')
-            if len(raw) <= 4:
+            if len(raw) <= 4: # 不会出现的
                 print('[ERROR] this 3d pt has no 2d obs!')
                 assert False
-            num_obs = int((len(raw)-4) / 2)
-            assert (len(raw)-4) % 2 == 0
+            num_obs = int((len(raw)-4-1) / 2) # 增加最后一列是 误差 所以 -5
+            assert (len(raw)-4-1) % 2 == 0
             dic_mappts[int(raw[0])] = []
             xyz = np.array(raw[1:4], dtype=float) # (3)
             if self.prior_scale is not None: # 如果需要 先对prior 稀疏点云 的尺度恢复! 
@@ -447,10 +503,20 @@ class Replica(BaseDataset):
             dic_mappts[int(raw[0])].append(xyz)
             xyz.reshape(1, -1)
             xyzs += [xyz]
-            if len(raw) > 4:
-                obsarr = np.array(list(map(int, raw[4:]))).reshape(num_obs, 2) # (n,2)
+            if len(raw) > 4: # 注意这里 最后一位不要
+                obsarr = np.array(list(map(int, raw[4:-1]))).reshape(num_obs, 2) # (n,2)
                 dic_mappts[int(raw[0])].append(obsarr)
+                # 列表的最后一项 存储误差
+                dic_mappts[int(raw[0])].append(float(raw[-1]))
         # (mapptidx:[xyz, obsarr])
+        # 再来计算整体误差的和 以及各点的不确定性
+        geo_err = np.array([ dic_mappts[key][2] for key in dic_mappts.keys() ])
+        err_mean = np.mean(geo_err)
+        for key in dic_mappts.keys():
+            va = dic_mappts[key]
+            err = va[2]
+            weight = 2 * np.exp(-(err/err_mean)**2) # (0,1] 之间的值 ds-nerf 中是x2 按下不表
+            dic_mappts[key].append(weight) # 再补充一个列表元素 保存weight
         xyzs = np.stack(xyzs, 0) # (n,3)
         self.orb_xyzs = xyzs
         self.orb_xyzs_dict = dic_mappts # 可来验证

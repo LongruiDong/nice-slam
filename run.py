@@ -45,7 +45,11 @@ def main():
     slam = NICE_SLAM(cfg, args)
     # print(cfg)
     # 保存到output 作为备份
-    savepath =  os.path.join(cfg['data']['output'], 'param.yaml')
+    if args.output is None:
+        output = cfg['data']['output']
+    else:
+        output = args.output
+    savepath =  os.path.join(output, 'param.yaml')
     config.save_config(cfg, savepath)
     slam.run()
 

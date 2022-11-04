@@ -1,6 +1,7 @@
 from copy import copy
-import torch
+import torch, os
 from src.common import get_rays, raw2outputs_nerf_color, sample_pdf
+# from src.utils.Visualizer import Visualizer.
 # -*- coding:utf-8 -*-
 
 class Renderer(object):
@@ -138,7 +139,7 @@ class Renderer(object):
             gt_none_zero_mask = gt_depth > 0 # (N,1)
             # 分为两部分 暂时还是需要coarse level 大range
             near_base = torch.full(size=gt_depth.shape, fill_value=0.01, device=device) # (N,1) 0.1*torch.min(gt_depth)
-            near_base[gt_none_zero_mask] = 0.1 * gt_depth[gt_none_zero_mask] # 0.8
+            near_base[gt_none_zero_mask] = 0.01 * gt_depth[gt_none_zero_mask] # 0.1 0.8
             near = near_base.repeat(1, N_samples) # (N,sam#)
 
         with torch.no_grad():
@@ -185,12 +186,6 @@ class Renderer(object):
             z_samples_zero = self.finer_sample(c, decoders, z_vals[~gt_none_zero_mask],
                                                rays_d[~gt_none_zero_mask], rays_o[~gt_none_zero_mask],
                                                N_surface, device, stage)
-            # z_vals_mid = .5 * (z_vals[..., 1:] + z_vals[..., :-1])
-            # z_vals_mid_zero = z_vals_mid[~gt_none_zero_mask]
-            # weights_zero = weights[~gt_none_zero_mask]
-            # z_samples_zero = sample_pdf( # 多层采样
-            #     z_vals_mid_zero, weights_zero[..., 1:-1], N_surface, det=(self.perturb == 0.), device=device)
-            # z_samples_zero = z_samples_zero.detach()
             z_vals_surface[~gt_none_zero_mask,
                             :] = z_samples_zero # to debug shape
             
@@ -200,7 +195,7 @@ class Renderer(object):
                 gt_depth_surface = gt_none_zero.repeat(1, N_surface_i)
                 t_vals_surface = torch.linspace(
                     0., 1., steps=N_surface_i).double().to(device)
-                # emperical range 0.05*depth # 这个超参数本来就是经验性的 改为 0.2 因为要在这里 多重采样
+                # emperical range 0.05*depth # 这个超参数本来就是经验性的 改为 0.15 0.2 因为要在这里 多重采样
                 z_vals_surface_depth_none_zero = (1-self.emperical_range)*gt_depth_surface * \
                     (1.-t_vals_surface) + (1+self.emperical_range) * \
                     gt_depth_surface * (t_vals_surface) # (N, Surf) 每行都是给定的区间 在 当前depth
@@ -219,34 +214,11 @@ class Renderer(object):
                         z_surface_i = self.finer_sample(c, decoders, z_surface_last,
                                                 rays_d[gt_none_zero_mask], rays_o[gt_none_zero_mask],
                                                 N_surface_i, device, stage)
-                        # pts = rays_o[gt_none_zero_mask, None, :] + rays_d[gt_none_zero_mask, None, :] * \
-                        # z_surface_last[..., :, None]  # [N_rays, N_surface_i, 3] z_val 才是实际的t
-                        # pointsf = pts.reshape(-1, 3)
-
-                        # raw = self.eval_points(pointsf, decoders, c, stage, device)
-                        # raw = raw.reshape(N_rays, N_surface_i, -1)
-
-                        # depth, uncertainty, color, weights = raw2outputs_nerf_color(
-                        #     raw, z_surface_last, rays_d, occupancy=self.occupancy, device=device)
-                        
-                        # z_vals_mid = .5 * (z_vals[..., 1:] + z_vals[..., :-1])
-                        # z_samples = sample_pdf( # 多层采样
-                        #     z_vals_mid, weights[..., 1:-1], N_importance, det=(self.perturb == 0.), device=device)
-                        # z_samples = z_samples.detach()
                         z_surface_last, _ = torch.sort(torch.cat([z_surface_last, z_surface_i], -1), -1)
                         
                 # 经过上面多次采样, 得到非0部分的样本        
                 z_vals_surface[gt_none_zero_mask,
                                 :] = z_surface_last
-            
-        # if self.perturb > 0.: 前面已经有过一次了
-        #     # get intervals between samples
-        #     mids = .5 * (z_vals[..., 1:] + z_vals[..., :-1])
-        #     upper = torch.cat([mids, z_vals[..., -1:]], -1)
-        #     lower = torch.cat([z_vals[..., :1], mids], -1)
-        #     # stratified samples in those intervals
-        #     t_rand = torch.rand(z_vals.shape).to(device)
-        #     z_vals = lower + (upper - lower) * t_rand
 
         if N_surface > 0:
             z_vals, _ = torch.sort( # 每一行 把 各自采样拼起来 concat 并每行排序  [N_rays, N_samples+N_surface]
@@ -281,9 +253,9 @@ class Renderer(object):
             depth, uncertainty, color, weights, sigma_loss = raw2outputs_nerf_color(
                 raw, z_vals, rays_d, occupancy=self.occupancy, device=device,
                 coarse_depths=gt_depth) # if self.use_KL_loss else None
-            return depth, uncertainty, color, weights, sigma_loss
-
-        return depth, uncertainty, color, weights, sigma_loss
+            return depth, uncertainty, color, weights, sigma_loss, z_vals
+        # 增加输出采样的深度 为了画图
+        return depth, uncertainty, color, weights, sigma_loss, z_vals
 
     def render_batch_ray(self, c, decoders, rays_d, rays_o, device, stage, gt_depth=None):
         """
@@ -421,11 +393,12 @@ class Renderer(object):
 
             depth, uncertainty, color, weights, sigma_loss = raw2outputs_nerf_color(
                 raw, z_vals, rays_d, occupancy=self.occupancy, device=device, coarse_depths=gt_depth)
-            return depth, uncertainty, color, weights, sigma_loss
+            return depth, uncertainty, color, weights, sigma_loss, z_vals
+        # 增加输出采样的深度 为了画图
+        return depth, uncertainty, color, weights, sigma_loss, z_vals
 
-        return depth, uncertainty, color, weights, sigma_loss
-
-    def render_img(self, c, decoders, c2w, device, stage, gt_depth=None):
+    def render_img(self, c, decoders, c2w, device, stage, gt_depth=None, weight_vis_dir=None,
+                   prefix=None):
         """
         Renders out depth, uncertainty, and color images.
 
@@ -453,6 +426,9 @@ class Renderer(object):
             depth_list = []
             uncertainty_list = []
             color_list = []
+            weights_list = []
+            sigma_loss_list = []
+            z_vals_list = []
 
             ray_batch_size = self.ray_batch_size
             if gt_depth is not None:
@@ -477,21 +453,83 @@ class Renderer(object):
                         ret = self.render_batch_ray(
                             c, decoders, rays_d_batch, rays_o_batch, device, stage, gt_depth=gt_depth_batch)
 
-                depth, uncertainty, color, weights, sigma_loss = ret # 这里的输出不同 但sigma_loss可能仍是None
+                depth, uncertainty, color, weights, sigma_loss, z_vals = ret # 这里的输出不同 但sigma_loss可能仍是None
                 depth_list.append(depth.double())
                 uncertainty_list.append(uncertainty.double())
                 color_list.append(color)
-                # img 内的 weights 切片可视化检验 debug
+                weights_list.append(weights)
+                sigma_loss_list.append(sigma_loss)
+                z_vals_list.append(z_vals)
+                    
 
             depth = torch.cat(depth_list, dim=0)
             uncertainty = torch.cat(uncertainty_list, dim=0)
             color = torch.cat(color_list, dim=0)
+            weights = torch.cat(weights_list, dim=0)
+            
+            z_vals = torch.cat(z_vals_list, dim=0)
+            # img 内的 weights 切片可视化检验 debug
+            if gt_depth is not None: # 即当前img是orb kf情况下 gt_depth is not None
+                sigma_loss = torch.cat(sigma_loss_list, dim=0)
+                gt_none_zero_mask = gt_depth > 0
+                gt_depth_surface = gt_depth[gt_none_zero_mask]
+                weights_valid = weights[gt_none_zero_mask]
+                z_vals_valid = z_vals[gt_none_zero_mask]
+                # sigma_loss_valid = sigma_loss[gt_none_zero_mask]
+                
+                n_valid = gt_depth_surface.shape[0]
+                
+                interval = 500
+                m_plot0 = n_valid // interval # 每间隔100个像素 取出 画图
+                m_plot = min(m_plot0, 10)
+                for k in range(m_plot):
+                    self.visualize_weights(gt_depth_surface[k*interval].cpu().numpy(),
+                                           weights_valid[k*interval, :].cpu().numpy(),
+                                           z_vals_valid[k*interval, :].cpu().numpy(),
+                                           sigma_loss[k*interval, :].cpu().numpy(),
+                                           os.path.join(weight_vis_dir, prefix+f'_ray_%d.png'%k))
+                
 
             depth = depth.reshape(H, W)
             uncertainty = uncertainty.reshape(H, W)
             color = color.reshape(H, W, 3)
             return depth, uncertainty, color
 
+    def visualize_weights(self, prior_depth, weights, z_vals, sigma_loss,
+                          plotpath):
+        """
+        可视化某个ray上 个采样点深度 、render 的weight、 prior_depth 的位置之间的关系 
+
+        Args:
+            prior_depth (_type_): _description_
+            weights (_type_): _description_
+            z_vals (_type_): _description_
+            sigma_loss: 
+            plotpath (_type_): _description_
+        """
+        
+        import numpy as np
+        import matplotlib.pyplot as plt
+        
+        fig, axs = plt.subplots(1, 2)
+        fig.tight_layout()
+        axs[0].plot(z_vals, weights)
+        axs[0].scatter(z_vals, weights, c='green', s=2)
+        axs[0].axvline(prior_depth, linestyle='--', color='red') # 竖线表示先验深度的位置
+        # 再画个 其代表的高斯分布吧
+        err = 0.02 # 暂时以此为方差吧 之后是以实际方差来代替
+        prior_y = 1./(np.sqrt(2*np.pi*err)) * np.exp(- (z_vals - prior_depth) ** 2 / (2*err))
+        axs[0].plot(z_vals, prior_y, c='tab:orange')
+        # axs[0].vlines(prior_depth, linestyle='dashed', color='red')
+        axs[1].plot(z_vals, sigma_loss) # 画loss
+        axs[1].scatter(z_vals, sigma_loss, c='tab:orange', s=2) # 画loss
+        axs[0].set_title('ray weight')
+        axs[1].set_title('KL loss: {}'.format(np.sum(sigma_loss)))
+        # axs.set_xticks([])
+        # axs.set_yticks([])
+        plt.savefig(plotpath, dpi=200)
+        
+    
     # this is only for imap*
     def regulation(self, c, decoders, rays_d, rays_o, gt_depth, device, stage='color'):
         """

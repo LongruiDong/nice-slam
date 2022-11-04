@@ -21,6 +21,8 @@ class Visualizer(object):
         self.renderer = renderer
         self.inside_freq = inside_freq #输入参数
         os.makedirs(f'{vis_dir}', exist_ok=True)
+        self.vis_weight_dir = os.path.join(vis_dir, 'weight_vis')
+        os.makedirs(self.vis_weight_dir, exist_ok=True)
         self.depth_trunc = depth_trunc #用于区分可视化
 
     def vis(self, idx, iter, gt_depth, gt_color, c2w_or_camera_tensor, c,
@@ -63,7 +65,9 @@ class Visualizer(object):
                     c2w,
                     self.device,
                     stage='color', #这个渲染来可视化的stage是color！ 但其实也会得到fine下的occupancy
-                    gt_depth=vis_depth) # 可能为none
+                    gt_depth=vis_depth, # 可能为none
+                    weight_vis_dir=self.vis_weight_dir,
+                    prefix=f'{idx:05d}_{iter:04d}') 
                 depth_np = depth.detach().cpu().numpy()
                 color_np = color.detach().cpu().numpy()
                 depth_residual = np.abs(gt_depth_np - depth_np)
@@ -139,3 +143,16 @@ class Visualizer(object):
                 # if self.verbose:
                 #     print(
                 #         f'Saved rendering visualization of color/depth image at {self.vis_dir}/{idx:05d}_{iter:04d}.jpg')
+
+    def visualize_weights(self, prior_depth, weights, z_vals, plotpath):
+        """
+        可视化某个ray上 个采样点深度 、render 的weight、 prior_depth 的位置之间的关系 
+
+        Args:
+            prior_depth (_type_): _description_
+            weights (_type_): _description_
+            z_vals (_type_): _description_
+            plotpath (_type_): _description_
+        """
+        
+        
