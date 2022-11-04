@@ -2,7 +2,7 @@
 利用~/Project1/ORB_SLAM2  拿出来的所有需要的数据
 /home/dlr/Project1/ORB_SLAM2_Enhanced/result:
 ####.txt (所有kf 但以frameid为名) (首行是 tum 格式 Tcw (8,)) 其余 kptid u v 3dpid(-1表示没有对应) x y z 
-mappts.txt 3dpid x y z [obsv_frameid kptid ....(repeat) ]
+mappts.txt 3dpid x y z [obsv_frameid kptid ....(repeat) ] sum_geo_error(该3d点对所有观测的重投影误差和)
 KeyFrameTrajectory.txt tum 格式 Twc kf位姿
 office0_orb_mappts.txt 仅是所有3d点坐标 (验证过各文件 一致 除了pose还没验证)
 再这里进行三角剖分 并投影到图像 注意是 所有点 和 有效的三角形
@@ -17,7 +17,7 @@ import argparse, os, copy
 import random, math
 # -*- coding:utf-8 -*-
 import numpy as np
-import torch
+# import torch
 
 import matplotlib.pyplot as plt
 import open3d as o3d
@@ -476,6 +476,10 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
     mapptsfile = os.path.join(orbmapdir, 'mappts.txt')
     kftrajfile = os.path.join(orbmapdir, 'KeyFrameTrajectory.txt')
     gttrajfile = os.path.join(cfg['data']['input_folder'], 'traj.txt')
+    kptdir = os.path.join(orbmapdir, 'keypt')
+    
+    outdir = os.path.join(orbmapdir, 'prior') # 用于保存所有结果
+    os.makedirs(outdir, exist_ok=True)
     
     # 载入 mapptsfile 以字典方式存吧  每行长度不一
     dic_mappts = {}
@@ -486,19 +490,21 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
     for i in range(n_pts):
         line = lines[i]
         raw = line.split(' ')
-        if len(raw) <= 4:
+        if len(raw) <= 4: # 不会出现的
             print('[ERROR] this 3d pt has no 2d obs!')
             assert False
-        num_obs = int((len(raw)-4) / 2)
-        assert (len(raw)-4) % 2 == 0
+        num_obs = int((len(raw)-4-1) / 2) # 增加最后一列是 误差 所以 -5
+        assert (len(raw)-4-1) % 2 == 0
         dic_mappts[int(raw[0])] = []
         xyz = np.array(raw[1:4], dtype=float) # (3)
         dic_mappts[int(raw[0])].append(xyz)
         xyz.reshape(1, -1)
         xyzs += [xyz]
-        if len(raw) > 4:
-            obsarr = np.array(list(map(int, raw[4:]))).reshape(num_obs, 2) # (n,2)
+        if len(raw) > 4: # 注意这里 最后一位不要
+            obsarr = np.array(list(map(int, raw[4:-1]))).reshape(num_obs, 2) # (n,2)
             dic_mappts[int(raw[0])].append(obsarr)
+            # 列表的最后一项 存储误差
+            dic_mappts[int(raw[0])].append(float(raw[-1]))
     # (mapptidx:[xyz, obsarr])
     xyzs = np.stack(xyzs, 0) # (n,3)
     
@@ -521,6 +527,7 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
     # return -1
     estpose = np.loadtxt(kftrajfile) # 本身是kf pose
     print('load pred pose from {}'.format(kftrajfile))
+    # 转换格式到 tum_gt 并保存
     gtpose, _ = load_traj(gttrajfile, save=os.path.join(cfg['data']['input_folder'], 'tum_gt.txt'), firstI=False)
     print('load gt traj from {}'.format(gttrajfile))
     # 转变为 字典 key 为 时间戳
@@ -531,6 +538,31 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
     dic_gt = dict([(gtpose[i, 0], gtpose[i, 1:]) for i in range(n_gt)])
     dic_est = dict([(float(format(estpose[i, 0], '.1f')), estpose[i, 1:]) for i in range(n_est)])
     
+    matches = associate(dic_gt, dic_est)
+    if len(matches) < 2:
+        raise ValueError(
+            "Couldn't find matching timestamp pairs between groundtruth and estimated trajectory! \
+            Did you choose the correct sequence?")
+    first_xyz = np.matrix(
+        [[float(value) for value in dic_gt[a][0:3]] for a, b in matches]).transpose()
+    second_xyz = np.matrix([[float(value) for value in dic_est[b][0:3]] for a, b in matches]).transpose()
+    
+    # 对齐 得到尺度变换
+    rot, trans, trans_error, s = align(first_xyz, second_xyz) # RT把前者 变为后者, s 把后者变前者
+    if False:
+        print("compared_pose_pairs %d pairs" % (len(trans_error)))
+
+        print("absolute_translational_error.rmse %f m" % np.sqrt(
+            np.dot(trans_error, trans_error) / len(trans_error)))
+        print("absolute_translational_error.mean %f m" %
+              np.mean(trans_error))
+        print("absolute_translational_error.median %f m" %
+              np.median(trans_error))
+        print("absolute_translational_error.std %f m" % np.std(trans_error))
+        print("absolute_translational_error.min %f m" % np.min(trans_error))
+        print("absolute_translational_error.max %f m" % np.max(trans_error))
+    scale = float(s) # float(1./s)
+    print('est map should x {}'.format(scale))
 
     # 投影的话还是要有每帧位姿 再跑前面的orbslam 插值 不准 就先只用kf的吧
     kf_orb_pose = copy.deepcopy(estpose)
@@ -543,7 +575,8 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
     n_img = frame_reader.__len__()
     K, H, W = update_cam(cfg) # 得到内参矩阵
     invK = np.linalg.inv(K)
-    DEPTHSCALE = cfg['cam']['png_depth_scale']
+    DEPTHSCALE = float(frame_reader.png_depth_scale) # cfg['cam']['png_depth_scale']
+    print('gt depth scale: {}'.format(DEPTHSCALE))
     idx_map = [] # 记录每张图上 有效triangulate 以及 所有verts 和之前原3d 数据的idx 的映射关系 list 里是多个字典 每个字典是个List 里面两个字典
     # 分别表示 有效triangulate 和 verts
     
@@ -552,28 +585,44 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
         # idx = idx.item()
         if (not idx in dic_est.keys()):
             continue # 非kf 暂时不投影
-        if idx != 813: # 813 > 0
-            continue # break
-        # if idx == 0: # 813 > 0
+        # if idx != 813: # 813 > 0
         #     continue # break
-        if idx > 813: # 813 > 0 45
-            break # break
+        # # if idx == 0: # 813 > 0
+        # #     continue # break
+        # if idx > 813: # 813 > 0 45
+        #     break # break
         rgbpath = frame_reader.color_paths[idx]
         color_data = cv2.imread(rgbpath) # h,w,3 unit8
         print('process frame {}'.format(rgbpath))
         color_data = cv2.cvtColor(color_data, cv2.COLOR_BGR2RGB) 
+        gtdepthpath = frame_reader.depth_paths[idx]
+        depth_data = cv2.imread(gtdepthpath, cv2.IMREAD_UNCHANGED)
+        depth_data = depth_data.astype(np.float32) / DEPTHSCALE
+        # 拿出最大值
+        max_depth = np.max(depth_data) # 原尺度 还需要变换
+        max_gtdepth = max_depth/scale
         #Rectangle to be used with Subdiv2D
         size = color_data.shape # h, w, 3
         rect = (0,0,size[1],size[0])
         # 读入 ####.txt
-        kffile = os.path.join(orbmapdir, "%04d.txt" % idx)
+        kffile = os.path.join(kptdir, "%04d.txt" % idx)
         # kptid u v 3dpid(-1表示没有对应) x y z
         kfarr = np.loadtxt(kffile, skiprows=1) # (N,7) , fmt='%d %d %d %d %.6f %.6f %.6f'
         # 转为字典 no
         kpts = kfarr[:, 1:3] # .astype(np.int32) # (n,2)
         kfarr1 = filterkpt(kfarr, ind) # 3d 点云上的过滤1次 看作再一次过滤 kfarr1 只是 mptid 那栏 falg 变了 看过到后面那帧时  是会变的
         # continue
-        kpts_wdepth = kpts[kfarr1[:, 3]>0] # 那些有深度的点才用 
+        kfarr_wd = kfarr1[kfarr1[:, 3]>0]
+        ev = np.zeros((kfarr_wd.shape[0],1))
+        kfarr_wd = np.hstack((kfarr_wd, ev))
+        for i in range(kfarr_wd.shape[0]):
+            assert kfarr_wd[i, 3] >= 0
+            mpt_id = int(kfarr_wd[i, 3])
+            kfarr_wd[i, 7] = frame_reader.orb_xyzs_dict[mpt_id][3]
+        # 取出 weight较大的 70%
+        min_th = np.percentile(kfarr_wd[:, 7], 40) # 本身从小到大 所以拿30%
+        # kpts_wdepth = kpts[kfarr1[:, 3]>0] # 那些有深度的点才用 
+        kpts_wdepth = kfarr_wd[kfarr_wd[:, 7]>min_th][:, 1:3] # 那些有深度且权重较大的点
         # kfarr = copy.deepcopy(kfarr1) # debug
         # 还要就取出首行 Tcw
         tum_i = np.loadtxt(kffile, max_rows=1) # , fmt='%.1f %.6f %.6f %.6f %.6f %.6f %.6f %.6f'
@@ -582,20 +631,20 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
         kf_w2c = np.array(TQtoSE3(kf_tq))
         kf_c2w = np.linalg.inv(kf_w2c)
         R_c2w = kf_c2w[0:3, 0:3]
-        # 对 kpts 做2d上的三角剖分
+        # 对 kpts 做2d上的三角剖分 已经少了很多点了
         #Create an instance of Subdiv2d
         subdiv = cv2.Subdiv2D(rect)
         subdiv.insert(np.around(kpts_wdepth))
 
-        #Draw points
-        for p in np.around(kpts_wdepth).astype(np.int32): #.astype(np.int32):
+        #Draw points 画点的话 就都画
+        for p in np.around(kfarr_wd[:, 1:3]).astype(np.int32): #.astype(np.int32):
             draw_point(color_data,p,(255,0,0))
-        win_delaunary = "%04d-delaunay triangulation" % idx
+        # win_delaunary = "%04d-delaunay triangulation" % idx
         #Show results
         # cv2.imshow(win_delaunary,color_data)
         # cv2.waitKey(0) # 注意 光标在窗口上时 按空格键 才能正常退出
         # save img dt kpt(只画 kpt)
-        outvisfile = os.path.join('tridebug1', "kpt%04d.jpg" % idx)
+        outvisfile = os.path.join(outdir, "kpt%04d.jpg" % idx)
         cv2.imwrite(outvisfile, cv2.cvtColor(color_data, cv2.COLOR_BGR2RGB))
         
         # 估计粗糙的深度图 to do
@@ -688,9 +737,9 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
                 qmapt_h = np.concatenate([qmapt, np.array([1])], 0) # (4,)
                 qmapt_c = np.matmul(kf_w2c, qmapt_h)[:3] # (3,)
                 dd = qmapt_c[2]
-                if dd < 0 or dd > 1.5: # 10 9 2.5(因为这本来就是尺度变小近3倍)
+                if dd < 0 or dd > max_gtdepth: # 10 9 2.5(因为这本来就是尺度变小近3倍)
                     if ( True ): # idx <= 45
-                        print('query is kpt: {}, invalid depth: {}'.format( (ret[0] == -2), dd))
+                        print('query is kpt: {}, invalid depth: {}. max_gt: {}'.format( (ret[0] == -2), dd, max_gtdepth))
                     continue
                 if np.isclose(dd, 0):
                     print('query is kpt: {}, coarse depth close 0: {}'.format( (ret[0] == -2), dd))
@@ -711,25 +760,25 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
                 est_depth[v, u] = qmapt_c[2]
         
         curr_pcd = np.stack(curr_pcd, 0) # (n,3)
-        # 转为点云pcd保存
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(curr_pcd[:, :3]) # 相机位置的点云
-        pcd.normals = o3d.utility.Vector3dVector(curr_pcd[:, :3] / np.linalg.norm(curr_pcd[:, :3], axis=-1, keepdims=True)) # 每个位置点到原点的距离  每个位置单位向量
-        o3d.io.write_point_cloud(os.path.join('tridebug1', "pts%04d.ply" % idx), pcd)
+        # # 转为点云pcd保存
+        # pcd = o3d.geometry.PointCloud()
+        # pcd.points = o3d.utility.Vector3dVector(curr_pcd[:, :3]) # 相机位置的点云
+        # pcd.normals = o3d.utility.Vector3dVector(curr_pcd[:, :3] / np.linalg.norm(curr_pcd[:, :3], axis=-1, keepdims=True)) # 每个位置点到原点的距离  每个位置单位向量
+        # o3d.io.write_point_cloud(os.path.join(outdir, "pts%04d.ply" % idx), pcd)
         #Draw delaunary triangles 再用绿色 画出保留下来的
         draw_delaunay(color_data,trangleList[tri_flag>0],(0,255,0))
-        # draw_delaunay(color_data,trangleList[tri_flag<0],(255,255,255)) # 再画出白色的边 表示 被舍弃的
-        # 对当前估计的深度图 可视化 可视化有点问题
-        fig, axs = plt.subplots(1, 1)
-        fig.tight_layout()
-        max_depth = np.max(est_depth)
-        axs.imshow(est_depth, cmap="plasma",
-                   vmin=0, vmax=2.5)
-        # axs.set_title('coarse depth')
-        axs.set_xticks([])
-        axs.set_yticks([])
-        plt.savefig(os.path.join('tridebug1', "pltcd%04d.png" % idx), dpi = 200)
-        plt.show()
+        draw_delaunay(color_data,trangleList[tri_flag<0],(255,255,255)) # 再画出白色的边 表示 被舍弃的
+        # # 对当前估计的深度图 可视化 可视化有点问题
+        # fig, axs = plt.subplots(1, 1)
+        # fig.tight_layout()
+        # max_depth = np.max(est_depth)
+        # axs.imshow(est_depth, cmap="plasma",
+        #            vmin=0, vmax=2.5)
+        # # axs.set_title('coarse depth')
+        # axs.set_xticks([])
+        # axs.set_yticks([])
+        # plt.savefig(os.path.join(outdir, "pltcd%04d.png" % idx), dpi = 200)
+        # plt.show()
         # est_depth_vis = est_depth/np.max(est_depth)*255
         # est_depth_vis = np.clip(est_depth_vis, 0, 255).astype(np.uint8)
         # est_depth_vis = cv2.applyColorMap(est_depth_vis, cv2.COLORMAP_JET)
@@ -751,9 +800,9 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
         depthclip = np.clip(est_depth, 0 , 65535) # 10000
         # cv2.imshow(f'keypoint depth vis', depthclip)
         # cv2.waitKey(0)
-        savepath = os.path.join('tridebug1', "cd%04d.png" % idx) # triangulation/coarsedepth
-        # cv2.imwrite(savepath, depthclip.astype(np.uint16))
-        outvisfile = os.path.join('tridebug1', "dt%04d.jpg" % idx)
+        savepath = os.path.join(outdir, "cd%04d.png" % idx) # triangulation/coarsedepth
+        cv2.imwrite(savepath, depthclip.astype(np.uint16))
+        outvisfile = os.path.join(outdir, "dt%04d.jpg" % idx)
         cv2.imwrite(outvisfile, cv2.cvtColor(color_data, cv2.COLOR_BGR2RGB))
         print('save coasrse depth: {}'.format(savepath))
 
@@ -778,7 +827,8 @@ if __name__ == '__main__':
         args.config, 'configs/nice_slam.yaml' if args.nice else 'configs/imap.yaml')
     
     # 读取参数
-    orbmapdir = args.orbmapdir
+    # orbmapdir = args.orbmapdir
+    orbmapdir = cfg['data']['prior_folder'] # 就把三角剖分结果存到 原始稀疏重建结果里去
     # # 自己制作一个profile工具，并且传入要分析的代码
     # profile = lp.LineProfiler(main)
     # # 起始分析
