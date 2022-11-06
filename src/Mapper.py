@@ -540,8 +540,8 @@ class Mapper(object):
                     weighted_color_loss = color_loss
                 loss += weighted_color_loss
 
-            # for imap*, it uses volume density
-            regulation = (not self.occupancy)
+            # for imap*, it uses volume density 但当没有深度时 也不能使用
+            regulation = (not self.occupancy) and (not self.rgbonly)
             if regulation:
                 point_sigma = self.renderer.regulation(
                     c, self.decoders, batch_rays_d, batch_rays_o, batch_gt_depth, device, self.stage)

@@ -1,0 +1,15 @@
+inherit_from: configs/Replica/replica.yaml
+tracking:
+  gt_camera: True #? True False
+mapping:
+  bound: [[-6.7,5.1],[-7.5,4.9],[-2.8,3.5]]
+  marching_cubes_bound: [[-6.7,5.1],[-7.5,4.9],[-2.8,3.5]]
+  BA: False
+  no_vis_on_first_frame: False # True
+  # every_frame: 25 # 5| 25
+data:
+  input_folder: Datasets/Replica/office3
+  output: output_bl/Replica/office3gtp-rgb-resize2
+cam:
+  # depth_trunc: -1 # add for limit bound discard larger depth
+  crop_size: [340,600] # 使用一半大小的图片

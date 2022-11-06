@@ -1,0 +1,19 @@
+inherit_from: configs/Replica/replica.yaml
+# scale: 5 # 深度和pose 平移都x此尺度1 4 5 测试
+tracking:
+  gt_camera: True #? True False
+mapping:
+  bound: [[-5.3,6.5],[-5.1,6.0],[-4.5,5.2]]
+  marching_cubes_bound: [[-5.3,6.5],[-5.1,6.0],[-4.5,5.2]]
+
+  BA: False # True #mapping是否一同优化位姿 False
+  # iters_first: 2000 # 1500| 2000
+  # iters: 100 # 测试增大迭代次数 60| 100 120
+  no_vis_on_first_frame: False # True
+  # every_frame: 25 # 5| 25
+data:
+  input_folder: Datasets/Replica/office1
+  output: output_bl/Replica/office1gtp-rgb-resize2 # 增大迭代次数
+cam:
+  # depth_trunc: -1 # add for limit bound discard larger depth
+  crop_size: [340,600] # 使用一半大小的图片

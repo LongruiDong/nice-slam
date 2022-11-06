@@ -1,4 +1,6 @@
 dataset: 'replica'
+rgbonly: True # 增加选项 是否为单目模式 即无depth loss
+guidesample: False # 增加选项 测试深度引导对在线的作用 False 默认
 meshing:
   eval_rec: True
 tracking:

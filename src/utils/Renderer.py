@@ -231,7 +231,8 @@ class Renderer(object):
             color_list = []
 
             ray_batch_size = self.ray_batch_size
-            gt_depth = gt_depth.reshape(-1)
+            if gt_depth is not None:
+                gt_depth = gt_depth.reshape(-1)
 
             for i in range(0, rays_d.shape[0], ray_batch_size):
                 rays_d_batch = rays_d[i:i+ray_batch_size]
@@ -261,7 +262,7 @@ class Renderer(object):
     # this is only for imap*
     def regulation(self, c, decoders, rays_d, rays_o, gt_depth, device, stage='color'):
         """
-on that discourage any geometry from the camera center to 0.85*depth.        Regulati
+        Regulation that discourage any geometry from the camera center to 0.85*depth.        
         For imap, the geometry will not be as good if this loss is not added.
 
         Args:

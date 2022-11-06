@@ -70,6 +70,7 @@ class NICE_SLAM():
         self.frame_reader = get_dataset(cfg, args, self.scale)
         # print('use noise depth {}'.format(self.frame_reader.wnoise))
         print('use depth guide sample? : {}'.format(self.guide_sample))
+        print('use rgb only? : {}'.format(self.rgbonly))
         self.n_img = len(self.frame_reader)
         self.estimate_c2w_list = torch.zeros((self.n_img, 4, 4))
         self.estimate_c2w_list.share_memory_()

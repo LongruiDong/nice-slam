@@ -96,7 +96,7 @@ class BaseDataset(Dataset):
             self.input_folder = args.input_folder
         # 增加噪声接口
         self.wnoise = cfg['data']['wnoise']
-        self.stdmax = float(cfg['cam']['dstdv_cut_max']) # 用于prune深度的预测的不确定性阈值
+        # self.stdmax = float(cfg['cam']['dstdv_cut_max']) # 用于prune深度的预测的不确定性阈值
         self.crop_edge = cfg['cam']['crop_edge']
         self.depth_trunc = cfg['cam']['depth_trunc'] #深度截断
         self.sky_depth = cfg['cam']['sky_depth'] #clip需要
@@ -148,14 +148,14 @@ class BaseDataset(Dataset):
             depth_data1 = copy.deepcopy(depth_data)
             depth_data1[depth_data > self.depth_trunc] = 0.0
             depth_data = copy.deepcopy(depth_data1)
-        if False and self.stdmax>0 :  # len(self.stdv_paths) > 0
-            stdv_path = self.stdv_paths[index]
-            # 读入不确定性 npy
-            stdv_data = np.load(stdv_path).astype(np.float32)
-            # 根据不确定性阈值 把std太大的设为0  在nice-slam 0深度意味着不参与
-            depth_data[stdv_data>self.stdmax] = 0.0
-            if index<=1: 
-                print('prune stdv > {:f}'.format(self.stdmax))
+        # if False and self.stdmax>0 :  # len(self.stdv_paths) > 0
+        #     stdv_path = self.stdv_paths[index]
+        #     # 读入不确定性 npy
+        #     stdv_data = np.load(stdv_path).astype(np.float32)
+        #     # 根据不确定性阈值 把std太大的设为0  在nice-slam 0深度意味着不参与
+        #     depth_data[stdv_data>self.stdmax] = 0.0
+        #     if index<=1: 
+        #         print('prune stdv > {:f}'.format(self.stdmax))
         H, W = depth_data.shape
         color_data = cv2.resize(color_data, (W, H))
         color_data = torch.from_numpy(color_data)

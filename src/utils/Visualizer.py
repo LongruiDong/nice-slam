@@ -58,7 +58,7 @@ class Visualizer(object):
                     c2w,
                     self.device,
                     stage='color', #这个渲染来可视化的stage是color！ 但其实也会得到fine下的occupancy
-                    gt_depth=gt_depth)
+                    gt_depth=None) # 只是为了可视化 render 这里就不用 了吧
                 depth_np = depth.detach().cpu().numpy()
                 color_np = color.detach().cpu().numpy()
                 depth_residual = np.abs(gt_depth_np - depth_np)
@@ -88,20 +88,20 @@ class Visualizer(object):
                 # depth_residual = depth_residual.astype(np.float)*100
                 # depth_residual = np.clip(depth_residual, 0, 65535)
                 # depth_residual = depth_residual.astype(np.uint16)
-                if self.depth_trunc>0: # 如果depth截断过 就用最大值 ！
-                    secondmax_depth = max_depth
+                # if self.depth_trunc>0: # 如果depth截断过 就用最大值 ！
+                #     secondmax_depth = max_depth
                 axs[0, 0].imshow(gt_depth_np, cmap="plasma",
-                                 vmin=0, vmax=secondmax_depth) #max_depth
+                                 vmin=0) #max_depth , vmax=secondmax_depth
                 axs[0, 0].set_title('Input Depth')
                 axs[0, 0].set_xticks([])
                 axs[0, 0].set_yticks([])
                 axs[0, 1].imshow(depth_np, cmap="plasma",
-                                 vmin=0, vmax=secondmax_depth) #max_depth
+                                 vmin=0) #max_depth
                 axs[0, 1].set_title('Generated Depth')
                 axs[0, 1].set_xticks([])
                 axs[0, 1].set_yticks([])
                 axs[0, 2].imshow(depth_residual, cmap="plasma",
-                                 vmin=0, vmax=secondmax_depth) #max_depth
+                                 vmin=0) #max_depth
                 axs[0, 2].set_title('Depth Residual')
                 axs[0, 2].set_xticks([])
                 axs[0, 2].set_yticks([])
@@ -114,10 +114,10 @@ class Visualizer(object):
                 axs[1, 0].set_yticks([])
                 selecti = selecti.cpu().numpy()
                 selectj = selectj.cpu().numpy()
-                if selecti.shape[0] > 0 : #当有采样点时 在gtcolor画散点
-                    # print('sample pixels: \t',selecti.shape[0])
-                    if iter==0: #指在iter0可视化
-                        axs[1,0].scatter(selecti, selectj, c='red', s=2)
+                # if selecti.shape[0] > 0 : #当有采样点时 在gtcolor画散点
+                #     # print('sample pixels: \t',selecti.shape[0])
+                #     if iter==0: #指在iter0可视化
+                #         axs[1,0].scatter(selecti, selectj, c='red', s=2)
                 axs[1, 1].imshow(color_np, cmap="plasma")
                 axs[1, 1].set_title('Generated RGB')
                 axs[1, 1].set_xticks([])

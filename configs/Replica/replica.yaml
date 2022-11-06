@@ -28,6 +28,14 @@ mapping:
   middle_iter_ratio: -1. # 0.4 # rgbonly时 只有color stage
   fine_iter_ratio: -1. # 0.6
   save_selected_keyframes_info: True
+  frustum_feature_selection: False # rgb only时 只能如此 下同
+  keyframe_selection_method: 'global'
+rendering:
+  N_samples: 32 #N_strat
+  N_surface: 0 #在深度周围
+  N_importance: 16 #为啥是0 nerf里是有这一步 hirecial 采样吧
+  lindisp: False
+  perturb: 0.0
 cam:
   H: 680
   W: 1200
