@@ -100,14 +100,15 @@ class NICE_SLAM():
             val = val.to(self.cfg['mapping']['device']) #在grid 很大时 会出现out of memory
             val.share_memory_()
             self.shared_c[key] = val
-        for key, val in self.prior_xyzs_dict.items(): # 这样总的3d点是否又会占很多显存？
-            val = val.to(self.cfg['mapping']['device'])
-            val.share_memory_()
-            self.prior_xyzs_dict[key] = val
-        for key, val in self.prior_3dobs_dict.items(): # 现有的3d到2d的对应关系
-            val = val.to(self.cfg['mapping']['device'])
-            val.share_memory_()
-            self.prior_3dobs_dict[key] = val
+        if self.use_prior:
+            for key, val in self.prior_xyzs_dict.items(): # 这样总的3d点是否又会占很多显存？
+                val = val.to(self.cfg['mapping']['device'])
+                val.share_memory_()
+                self.prior_xyzs_dict[key] = val
+            for key, val in self.prior_3dobs_dict.items(): # 现有的3d到2d的对应关系
+                val = val.to(self.cfg['mapping']['device'])
+                val.share_memory_()
+                self.prior_3dobs_dict[key] = val
         self.shared_decoders = self.shared_decoders.to(
             self.cfg['mapping']['device'])
         self.shared_decoders.share_memory()

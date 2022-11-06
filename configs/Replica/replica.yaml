@@ -34,6 +34,7 @@ mapping:
   save_selected_keyframes_info: True
   color_loss_mask: False # color loss 是否用depth mask
   use_regulation: False # 对于nice 是否对深度前的区域正则化 sigma /occ
+  use_sparse_loss: False # 稀疏点 单独构建 depth color loss
 cam:
   H: 680
   W: 1200

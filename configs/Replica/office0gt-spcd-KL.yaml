@@ -25,7 +25,7 @@ mapping:
   vis_inside_freq: 30 # 30| 200 60
   middle_iter_ratio: 0.4 # 0.4 # rgbonly时 只有color stage -1
   fine_iter_ratio: 0.6 # 0.6 -1
-  every_frame: 25 # 5| 25 和 离线的80kf来对比
+  every_frame: 5 # 5| 25 和 离线的80kf来对比
   keyframe_every: 50
   mesh_freq: 500
   save_selected_keyframes_info: True
@@ -41,16 +41,16 @@ rendering:
   N_importance: 32 #为啥是0 nerf里是有这一步 hirecial 采样吧 12(imap*) 16(总数和原始保持一致) 32
   lindisp: False
   perturb: 0.0 
-  less_sample_space: False # 是否用粗糙深度来在surface附近区间内多重采样
+  less_sample_space: True # 是否用粗糙深度来在surface附近区间内多重采样
   up_sample_steps: 2 # 在表面附件多重采样的次数 暂时每次16个
-  emperical_range: 0.05 # 增加参数控制 surface 的range 比例 0.05| 0.1 0.15
-  use_KL_loss: False # 是否使用ds-nerf的sigma loss True
+  emperical_range: 0.10 # 增加参数控制 surface 的range 比例 0.05| 0.1 0.15
+  use_KL_loss: True # 是否使用ds-nerf的sigma loss True
   # https://github.com/dunbar12138/DSNeRF/blob/d9deb70ac1464348aebbe5e32fc98aeca1920f70/run_nerf.py#L527
   raw_noise_std: 1.0 # 'std dev of noise added to regularize sigma_a output, 1e0 recommended' 只是对于nerf nice-slam还用不上
   sigma_lambda: 0.2 # 权重因子 used for KL loss 0.1 
 data:
   input_folder: Datasets/Replica/office0
-  output: output/Replica_prior/office0gt-sp-resize2-25hz-debug #-KLloss # onlyvis -woguide -it1k  ertune office0gt-nodloss1-woNsurf-Ni32-p1k-f4k-it4k-init
+  output: output/Replica_prior/office0gt-sp-resize2-5hz-KLoss #-debug-KLloss # onlyvis -woguide -it1k  ertune office0gt-nodloss1-woNsurf-Ni32-p1k-f4k-it4k-init
   prior_folder: /home/dlr/Project1/ORB_SLAM2_Enhanced/result/replica/office0
 cam:
   depth_trunc: 8 # add for limit bound discard larger depth -1| 对于prior depth 得用

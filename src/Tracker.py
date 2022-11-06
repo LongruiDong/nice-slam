@@ -67,6 +67,7 @@ class Tracker(object):
         self.prev_mapping_idx = -1
         self.frame_reader = get_dataset(
             cfg, args, self.scale, device=self.device)
+        # self.frame_reader = slam.frame_reader # 何必再初始化一次呢？ 因为是不同线程 还是得重开
         self.n_img = len(self.frame_reader)
         self.frame_loader = DataLoader(
             self.frame_reader, batch_size=1, shuffle=False, num_workers=1)
@@ -126,7 +127,7 @@ class Tracker(object):
         else:
             ret = self.renderer.render_batch_ray(
                 self.c, self.decoders, batch_rays_d, batch_rays_o,  self.device, stage='color',  gt_depth=None if ( self.coarse_mapper or (not self.guide_sample) or (not validflag) ) else batch_gt_depth) # 突然意识到之前这里 还是会根据gt depth 采样ray上表面附近的
-        depth, uncertainty, color, weights, sigma_loss = ret # 这里的输出不同 但sigma_loss可能仍是None
+        depth, uncertainty, color, weights, sigma_loss, _ = ret # 这里的输出不同 但sigma_loss可能仍是None
 
         uncertainty = uncertainty.detach()
         if self.handle_dynamic: # 处理运动物体
@@ -178,8 +179,8 @@ class Tracker(object):
             pbar = self.frame_loader
         else:
             pbar = tqdm(self.frame_loader)
-        # gt_depth 这里可能是prior coarse depth, prior_c2w(后续可以以此代替gt位姿), keypt
-        for idx, gt_color, gt_depth, gt_c2w, prior_c2w, _ in pbar: 
+        # gt_depth 这里可能是prior coarse depth, prior_c2w(后续可以以此代替gt位姿), keypt, prior_weight
+        for idx, gt_color, gt_depth, gt_c2w, prior_c2w, _, _ in pbar: 
             if not self.verbose:
                 pbar.set_description(f"Tracking Frame {idx[0]}")
 
@@ -195,10 +196,16 @@ class Tracker(object):
             if self.sync_method == 'strict':
                 # strictly mapping and then tracking idx % self.every_frame == 1 or self.every_frame == 1 or 去掉这些就是 只管orb kf
                 # initiate mapping every self.every_frame frames 这里增加 对于kf都tracking 否则 mapping那边更是receive不到
-                if idx > 0 and (idx % self.every_frame == 1 or self.every_frame == 1 or ((idx-1) in self.frame_reader.prior_poses.keys())):
-                    while self.mapping_idx[0] != idx-1:
-                        time.sleep(0.1)
-                    pre_c2w = self.estimate_c2w_list[idx-1].to(device)
+                if self.use_prior:
+                    if idx > 0 and (idx % self.every_frame == 1 or self.every_frame == 1 or ((idx-1) in self.frame_reader.prior_poses.keys())):
+                        while self.mapping_idx[0] != idx-1:
+                            time.sleep(0.1)
+                        pre_c2w = self.estimate_c2w_list[idx-1].to(device)
+                else:
+                    if idx > 0 and (idx % self.every_frame == 1 or self.every_frame == 1):
+                        while self.mapping_idx[0] != idx-1:
+                            time.sleep(0.1)
+                        pre_c2w = self.estimate_c2w_list[idx-1].to(device)
             elif self.sync_method == 'loose':
                 # mapping idx can be later than tracking idx is within the bound of
                 # [-self.every_frame-self.every_frame//2, -self.every_frame+self.every_frame//2]
@@ -225,10 +232,10 @@ class Tracker(object):
                 elif self.gt_camera and self.prior_camera:
                     assert False, f"prior pose not along with gt pose !"
                     
-                if not self.no_vis_on_first_frame and (not torch.isnan(gt_depth).all().item()):
-                    self.visualizer.vis(
-                        idx, 0, gt_depth, gt_color, c2w, self.c, self.decoders,
-                        selecti=self.slecti, selectj=self.slectj)
+                # if not self.no_vis_on_first_frame and (not torch.isnan(gt_depth).all().item()):
+                #     self.visualizer.vis(
+                #         idx, 0, gt_depth, gt_color, c2w, self.c, self.decoders,
+                #         selecti=self.slecti, selectj=self.slectj)
 
             else:
                 gt_camera_tensor = get_tensor_from_camera(gt_c2w)

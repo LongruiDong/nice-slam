@@ -1,6 +1,6 @@
 from copy import copy
 import torch, os
-from src.common import get_rays, raw2outputs_nerf_color, sample_pdf
+from src.common import get_rays, raw2outputs_nerf_color, sample_pdf, get_rays_by_weight
 # from src.utils.Visualizer import Visualizer.
 # -*- coding:utf-8 -*-
 
@@ -103,7 +103,8 @@ class Renderer(object):
         return z_samples
         
         
-    def render_batch_ray_tri(self, c, decoders, rays_d, rays_o, device, stage, gt_depth=None):
+    def render_batch_ray_tri(self, c, decoders, rays_d, rays_o, device, stage, gt_depth=None,
+                             confidence=None):
         """
         此函数是在使用深度prior的版本
         Render color, depth and uncertainty of a batch of rays. imap 和 nice-slam公共的代码 在query mlp 时会区分开
@@ -116,6 +117,7 @@ class Renderer(object):
             device (str): device name to compute on.
             stage (str): query stage.
             gt_depth (tensor, optional): sensor depth image. Defaults to None.
+            confidence (tensor, optional): 可信度 权重 对于稀疏点深度的权值 越大越可靠
 
         Returns:
             depth (tensor): rendered depth.
@@ -182,12 +184,13 @@ class Renderer(object):
             gt_none_zero_mask = gt_none_zero_mask.squeeze(-1) # ->(N)要不要放这里？
             z_vals_surface = torch.zeros(
                 gt_depth.shape[0], N_surface).to(device).double()
-            # 对于depth zero的部分 就在初次采样基础上 直接再来一次
-            z_samples_zero = self.finer_sample(c, decoders, z_vals[~gt_none_zero_mask],
-                                               rays_d[~gt_none_zero_mask], rays_o[~gt_none_zero_mask],
-                                               N_surface, device, stage)
-            z_vals_surface[~gt_none_zero_mask,
-                            :] = z_samples_zero # to debug shape
+            if z_vals[~gt_none_zero_mask].shape[0]>0:
+                # 对于depth zero的部分 就在初次采样基础上 直接再来一次
+                z_samples_zero = self.finer_sample(c, decoders, z_vals[~gt_none_zero_mask],
+                                                rays_d[~gt_none_zero_mask], rays_o[~gt_none_zero_mask],
+                                                N_surface, device, stage)
+                z_vals_surface[~gt_none_zero_mask,
+                                :] = z_samples_zero # to debug shape
             
             if gt_none_zero.shape[0]>0: # 当遇到此情况 不再进行下面的小区域内coarse2fine
                 # 开始循环 >=2多次来采样 这里只是对于 none_zero的部分
@@ -233,7 +236,7 @@ class Renderer(object):
         sigma_loss = None # 只有在最后 要输出最后结果时 才设置是否使用KL loss
         depth, uncertainty, color, weights, sigma_loss = raw2outputs_nerf_color(
             raw, z_vals, rays_d, occupancy=self.occupancy, device=device,
-            coarse_depths=gt_depth)
+            coarse_depths=gt_depth, confidence=confidence) # 内部会判读是否none
         
         # # 根据regnerf 由weights 进一步得到 rendering['acc'] 来用到 depth patch loss
         # regacc = weights.sum(axis=-1) # (batchsize)
@@ -252,7 +255,7 @@ class Renderer(object):
 
             depth, uncertainty, color, weights, sigma_loss = raw2outputs_nerf_color(
                 raw, z_vals, rays_d, occupancy=self.occupancy, device=device,
-                coarse_depths=gt_depth) # if self.use_KL_loss else None
+                coarse_depths=gt_depth, confidence=confidence) # if self.use_KL_loss else None
             return depth, uncertainty, color, weights, sigma_loss, z_vals
         # 增加输出采样的深度 为了画图
         return depth, uncertainty, color, weights, sigma_loss, z_vals
@@ -398,7 +401,7 @@ class Renderer(object):
         return depth, uncertainty, color, weights, sigma_loss, z_vals
 
     def render_img(self, c, decoders, c2w, device, stage, gt_depth=None, weight_vis_dir=None,
-                   prefix=None):
+                   prefix=None, confidence=None, gt_color=None):
         """
         Renders out depth, uncertainty, and color images.
 
@@ -409,6 +412,7 @@ class Renderer(object):
             device (str): device name to compute on.
             stage (str): query stage.
             gt_depth (tensor, optional): sensor depth image. Defaults to None.
+            confidence (tensor, optional): 该帧的关键点的置信度图
 
         Returns:
             depth (tensor, H*W): rendered depth image.
@@ -433,6 +437,7 @@ class Renderer(object):
             ray_batch_size = self.ray_batch_size
             if gt_depth is not None:
                 gt_depth = gt_depth.reshape(-1)
+                confidence = confidence.reshape(-1)
 
             for i in range(0, rays_d.shape[0], ray_batch_size):
                 rays_d_batch = rays_d[i:i+ray_batch_size]
@@ -446,9 +451,20 @@ class Renderer(object):
                             c, decoders, rays_d_batch, rays_o_batch, device, stage, gt_depth=None)
                 else:
                     gt_depth_batch = gt_depth[i:i+ray_batch_size]
-                    if self.less_sample_space:
+                    # confidence_batch = confidence[i:i+ray_batch_size]
+                    # kpt_mask = confidence_batch > -0
+                    # # 强行令 非关键点的深度为0 只是为了可视化
+                    # gt_depth_batch[~kpt_mask] = 0.
+                    # tmp = torch.zeros_like(gt_depth_batch)
+                    # if torch.equal(tmp, gt_depth_batch): # 若当前帧是非orb kf 就不用它来render
+                    #     vis_depth = None
+                    #     vis_con = None
+                    # else:
+                    #     vis_depth = gt_depth_batch
+                    #     vis_con = confidence_batch
+                    if self.less_sample_space: #  or (vis_depth is not None)
                         ret = self.render_batch_ray_tri(
-                            c, decoders, rays_d_batch, rays_o_batch, device, stage, gt_depth=gt_depth_batch) # 只需要前3个输出 不要loss
+                            c, decoders, rays_d_batch, rays_o_batch, device, stage, gt_depth=gt_depth_batch, confidence=None) # 只需要前3个输出 不要loss
                     else:
                         ret = self.render_batch_ray(
                             c, decoders, rays_d_batch, rays_o_batch, device, stage, gt_depth=gt_depth_batch)
@@ -471,23 +487,58 @@ class Renderer(object):
             # img 内的 weights 切片可视化检验 debug
             if gt_depth is not None: # 即当前img是orb kf情况下 gt_depth is not None
                 sigma_loss = torch.cat(sigma_loss_list, dim=0)
-                gt_none_zero_mask = gt_depth > 0
-                gt_depth_surface = gt_depth[gt_none_zero_mask]
-                weights_valid = weights[gt_none_zero_mask]
-                z_vals_valid = z_vals[gt_none_zero_mask]
-                # sigma_loss_valid = sigma_loss[gt_none_zero_mask]
+                if sigma_loss.shape[0] > 0:
+                    
+                    gt_none_zero_mask = confidence > 0 # 只管 kpt 的位置
+                    gt_depth_surface = gt_depth[gt_none_zero_mask]
+                    weights_valid = weights[gt_none_zero_mask]
+                    z_vals_valid = z_vals[gt_none_zero_mask]
+                    # sigma_loss_valid = sigma_loss[gt_none_zero_mask]
+                    confidence_valid = confidence[gt_none_zero_mask]
+                    
+                    n_valid = gt_depth_surface.shape[0]
+                    
+                    interval = 100 # 500 100
+                    m_plot0 = n_valid // interval # 每间隔100个像素 取出 画图
+                    m_plot = min(m_plot0, 10)
+                    for k in range(m_plot):
+                        self.visualize_weights(gt_depth_surface[k*interval].cpu().numpy(),
+                                               weights_valid[k*interval, :].cpu().numpy(),
+                                               z_vals_valid[k*interval, :].cpu().numpy(),
+                                               sigma_loss[k*interval, :].cpu().numpy(),
+                                               os.path.join(weight_vis_dir, prefix+f'_ray_%d.png'%k),
+                                               confidence=confidence_valid)
                 
-                n_valid = gt_depth_surface.shape[0]
+                # 由于前面 是分batch的 不能统一只关注kpt 这里单独渲染kpt 的ray
                 
-                interval = 500
-                m_plot0 = n_valid // interval # 每间隔100个像素 取出 画图
-                m_plot = min(m_plot0, 10)
-                for k in range(m_plot):
-                    self.visualize_weights(gt_depth_surface[k*interval].cpu().numpy(),
-                                           weights_valid[k*interval, :].cpu().numpy(),
-                                           z_vals_valid[k*interval, :].cpu().numpy(),
-                                           sigma_loss[k*interval, :].cpu().numpy(),
-                                           os.path.join(weight_vis_dir, prefix+f'_ray_%d.png'%k))
+                # 取出当前帧现在位姿后 用单独函数来提取出 稀疏点 对应的射线
+                prior_rays_o, prior_rays_d, prior_depth, prior_color, prior_weight, kpt_i, kpt_j = get_rays_by_weight(
+                    H, W, self.fx, self.fy, self.cx, self.cy, c2w, gt_depth.reshape(H,W), gt_color, confidence, device
+                )
+                if prior_rays_o.shape[0] > 0 :
+                    sp_ret = self.render_batch_ray_tri(c, decoders, prior_rays_d,
+                                                            prior_rays_o, device, stage,
+                                                            gt_depth=prior_depth, # 对于有效稀疏点 coarse深度和置信度都有
+                                                            confidence=prior_weight) #
+                    
+                    depth_sp, uncertainty_sp, color_sp, weights_sp, sigma_loss_sp, z_vals_sp = sp_ret
+                    gt_none_zero_mask = prior_depth > 0 # 只管 kpt 的位置
+                    prior_depth = prior_depth[gt_none_zero_mask]
+                    z_vals_sp = z_vals_sp[gt_none_zero_mask]
+                    weights_sp = weights_sp[gt_none_zero_mask]
+                    prior_weight = prior_weight[gt_none_zero_mask]
+                    n_valid = prior_depth.shape[0]
+                    
+                    interval = 100 # 500 100
+                    m_plot0 = n_valid // interval # 每间隔100个像素 取出 画图
+                    m_plot = min(m_plot0, 10)
+                    for k in range(m_plot):
+                        self.visualize_weights(prior_depth[k*interval].cpu().numpy(),
+                                            weights_sp[k*interval, :].cpu().numpy(),
+                                            z_vals_sp[k*interval, :].cpu().numpy(),
+                                            sigma_loss_sp[k*interval, :].cpu().numpy(),
+                                            os.path.join(weight_vis_dir, prefix+f'_keyray_%d.png'%k), # 单独命名
+                                            confidence=prior_weight[k*interval].cpu().numpy())
                 
 
             depth = depth.reshape(H, W)
@@ -496,7 +547,8 @@ class Renderer(object):
             return depth, uncertainty, color
 
     def visualize_weights(self, prior_depth, weights, z_vals, sigma_loss,
-                          plotpath):
+                          plotpath,
+                          confidence=None):
         """
         可视化某个ray上 个采样点深度 、render 的weight、 prior_depth 的位置之间的关系 
 
@@ -517,13 +569,14 @@ class Renderer(object):
         axs[0].scatter(z_vals, weights, c='green', s=2)
         axs[0].axvline(prior_depth, linestyle='--', color='red') # 竖线表示先验深度的位置
         # 再画个 其代表的高斯分布吧
-        err = 0.02 # 暂时以此为方差吧 之后是以实际方差来代替
+        # err = 0.02 # 暂时以此为方差吧 之后是以实际方差来代替
+        err = (1. / confidence) ** 2
         prior_y = 1./(np.sqrt(2*np.pi*err)) * np.exp(- (z_vals - prior_depth) ** 2 / (2*err))
         axs[0].plot(z_vals, prior_y, c='tab:orange')
         # axs[0].vlines(prior_depth, linestyle='dashed', color='red')
         axs[1].plot(z_vals, sigma_loss) # 画loss
         axs[1].scatter(z_vals, sigma_loss, c='tab:orange', s=2) # 画loss
-        axs[0].set_title('ray weight')
+        axs[0].set_title('ray weight. prior depth std: {}'.format(np.sqrt(err)))
         axs[1].set_title('KL loss: {}'.format(np.sum(sigma_loss)))
         # axs.set_xticks([])
         # axs.set_yticks([])

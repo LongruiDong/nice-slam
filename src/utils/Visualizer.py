@@ -26,7 +26,8 @@ class Visualizer(object):
         self.depth_trunc = depth_trunc #用于区分可视化
 
     def vis(self, idx, iter, gt_depth, gt_color, c2w_or_camera_tensor, c,
-            decoders, selecti = torch.zeros(0,), selectj = torch.zeros(0,)):
+            decoders, selecti = torch.zeros(0,), selectj = torch.zeros(0,),
+            confidence=None):
         """
         Visualization of depth, color images and save to file.
 
@@ -57,8 +58,10 @@ class Visualizer(object):
                 tmp = torch.zeros(gt_depth.shape, device=self.device)
                 if torch.equal(tmp, gt_depth): # 若当前帧是非orb kf 就不用它来render
                     vis_depth = None
+                    vis_con = None
                 else:
                     vis_depth = gt_depth
+                    vis_con = confidence
                 depth, uncertainty, color = self.renderer.render_img(
                     c,
                     decoders,
@@ -67,7 +70,9 @@ class Visualizer(object):
                     stage='color', #这个渲染来可视化的stage是color！ 但其实也会得到fine下的occupancy
                     gt_depth=vis_depth, # 可能为none
                     weight_vis_dir=self.vis_weight_dir,
-                    prefix=f'{idx:05d}_{iter:04d}') 
+                    prefix=f'{idx:05d}_{iter:04d}',
+                    confidence=vis_con,
+                    gt_color=gt_color) 
                 depth_np = depth.detach().cpu().numpy()
                 color_np = color.detach().cpu().numpy()
                 depth_residual = np.abs(gt_depth_np - depth_np)

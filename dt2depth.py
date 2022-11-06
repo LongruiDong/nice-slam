@@ -727,7 +727,9 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
                             continue # 此交点无效
                         if qmapt==-2 or qmapt==-1:
                             print('RayCastTriPlane ERROR')
-                            assert False
+                            # assert False
+                            tri_flag[ret[0]] = -1
+                            continue
                 if (True in np.isnan(qmapt)):
                     # 设置此三角面无效
                     tri_flag[ret[0]] = -1

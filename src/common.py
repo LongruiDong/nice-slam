@@ -110,7 +110,7 @@ def select_uv(i, j, n, depth, color, device='cuda:0'):
     """
     Select n uv from dense uv. 他这里没按I-map那样采样啊。。 均匀分布来采样
     depth 可能是 nan tensor 而且shape还是[4,4]
-    # i和j其实就是 图像裁剪后区域每像素的 下标 (u,v)
+    i和j其实就是 图像裁剪后区域每像素的 下标 (u,v)
     """
     i = i.reshape(-1)
     j = j.reshape(-1)
@@ -156,13 +156,6 @@ def get_sample_uv(H0, H1, W0, W1, n, depth, color, device='cuda:0'):
     H0= edge_ H1=H-edge_ W0= edge_ W1=W-edge_ n 需要多少像素点参与优化 来自设置文件pixels:
     depth 可能是 nan tensor
     """
-    # dnn = depth.cpu().numpy().shape
-    # dnnsum = dnn[0] + dnn[1]
-    # try:
-    #     # print('[get_sample_uv1] 2/depth.shapesum: \t', 2/dnnsum)
-    #     x = 2/dnnsum
-    # except Exception as e:
-    #     traceback.print_exc()
     depth = depth[H0:H1, W0:W1]
     color = color[H0:H1, W0:W1] #裁剪后的区域 各减 2*edge (335, 1202,3)
     # dnn = depth.cpu().numpy().shape
@@ -174,7 +167,7 @@ def get_sample_uv(H0, H1, W0, W1, n, depth, color, device='cuda:0'):
     #     traceback.print_exc()
     i, j = torch.meshgrid(torch.linspace( #目标图像区域 网格 list[20, 1221] list[20, 354] 
         W0, W1-1, W1-W0).to(device), torch.linspace(H0, H1-1, H1-H0).to(device))
-    i = i.t()  # transpose (1202,335)
+    i = i.t()  # transpose (1202,335)-> (h,w)
     j = j.t()  # i和j其实就是 图像区域每像素的 下标 (u,v) 矩阵
     i, j, depth, color = select_uv(i, j, n, depth, color, device=device) #拿出随机采样的像素 的 u v d c 向量们
     return i, j, depth, color
@@ -263,7 +256,8 @@ def get_tensor_from_camera(RT, Tquad=False):
 def raw2outputs_nerf_color(raw, z_vals, rays_d, occupancy=False,
                            coarse_depths=None,
                         #    valid_depth_mask=None,
-                           err=1,
+                           confidence=None, # 1 0.0025 0.01 (0.02) | 0.05 |0.1
+                           raw_noise_std=1e0,
                            device='cuda:0'):
     """
     Transforms model's predictions to semantically meaningful values.
@@ -275,7 +269,7 @@ def raw2outputs_nerf_color(raw, z_vals, rays_d, occupancy=False,
         occupancy (bool, optional): occupancy or volume density. Defaults to False.
         device (str, optional): device. Defaults to 'cuda:0'.
         coarse_depths: 当前batch的粗糙深度 可能含有0 用来构建 sigma_loss. 默认关闭
-        err: 构建sigma_loss (KL 散度) 时需要的方差tensor 本来应该是各深度kpt reprojection err 算的,暂时设为1
+        confidence: to 计算 构建sigma_loss (KL 散度) 时需要的方差tensor 本来应该是各深度kpt reprojection err 算的,暂时设为1
 
     Returns:
         depth_map (tensor, N_rays): estimated distance to object.
@@ -290,23 +284,26 @@ def raw2outputs_nerf_color(raw, z_vals, rays_d, occupancy=False,
     dists = dists.float()
     dists = torch.cat([dists, torch.Tensor([1e10]).float().to(
         device).expand(dists[..., :1].shape)], -1)  # [N_rays, N_samples]
-
+    noise = 0.
+    if raw_noise_std > 0.:
+        noise = torch.randn(raw[...,3].shape) * raw_noise_std # 变换后的 标准正态 噪声
+        noise = noise.to(device)
     # different ray angle corresponds to different unit length
     dists = dists * torch.norm(rays_d[..., None, :], dim=-1)
     rgb = raw[..., :-1] #注意颜色是其中的一部分
-    if occupancy: # 这个alpha 都是占据概率 原本sigma 对于nice是不在[0,1]
-        raw[..., 3] = torch.sigmoid(10*raw[..., -1])
+    if occupancy: # 这个alpha 都是占据概率 原本sigma 对于nice是不在[0,1] 0,100
+        raw[..., 3] = torch.sigmoid(10*(raw[..., -1] + noise))
         alpha = raw[..., -1] # 才是0，1
     else:
         # original nerf, volume density
-        alpha = raw2alpha(raw[..., -1], dists)  # (N_rays, N_samples)
+        alpha = raw2alpha(raw[..., -1] + noise, dists)  # (N_rays, N_samples)
     # ray termination probability = alpha(occupancy) * accumulated transmittance
     weights = alpha.float() * torch.cumprod(torch.cat([torch.ones((alpha.shape[0], 1)).to(
         device).float(), (1.-alpha + 1e-10).float()], -1).float(), -1)[:, :-1] # # (N_rays, N_samples)
     rgb_map = torch.sum(weights[..., None] * rgb, -2)  # (N_rays, 3)
     depth_map = torch.sum(weights * z_vals, -1)  # (N_rays)
     tmp = (z_vals-depth_map.unsqueeze(-1))  # (N_rays, N_samples)
-    depth_var = torch.sum(weights*tmp*tmp, dim=1)  # (N_rays)
+    depth_var = torch.sum(weights*tmp*tmp, dim=1)  # (N_rays) # 方差
     
     sigma_loss = None # 返回值可能为空
     if coarse_depths is not None: # 非空 意味着启用 kl loss
@@ -314,12 +311,32 @@ def raw2outputs_nerf_color(raw, z_vals, rays_d, occupancy=False,
             coarse_depths = coarse_depths.reshape(-1, 1)
         gt_none_zero_mask = (coarse_depths>0).squeeze(-1) # (N,1) 只对 那些有粗糙深度的区域使用此Loss [:,None]
         # gt_none_zero_mask = gt_none_zero_mask.squeeze(-1)
+        # 由置信度 计算 方差  两者是反相关
+        if confidence is not None:
+            err = (1. / confidence) ** 2
+        else:
+            err = torch.ones_like(depth_var) * 0.04
+        err = err.reshape(-1, 1)
+        # # 对远方差进行数值调整 最大值不超 0.0225
+        # fact = 0.0225/err.max()
+        # err *= fact
+        err = err.repeat(1, z_vals.shape[1]) # (b, N_samples) 才能参与到下面运算
         # weights 里会有0 导致下面计算失败nan https://github.com/dunbar12138/DSNeRF/issues/69 加上很小的数
-        sigma_loss = -torch.log(weights[gt_none_zero_mask] + 1e-5) * \
-            torch.exp(-(z_vals[gt_none_zero_mask] - coarse_depths[gt_none_zero_mask]) ** 2 / (2 * err)) * \
-                dists[gt_none_zero_mask] # 应为 (N_rays[valid depth], N_samples)
+        prior_gauss = torch.exp(-(z_vals[gt_none_zero_mask] - coarse_depths[gt_none_zero_mask]) ** 2 / (2 * err[gt_none_zero_mask]))
+        gaus_factor = 1. / ((2*torch.pi*err[gt_none_zero_mask])**(0.5)) # (n_valid)
+        if occupancy: # 当是完整kl_loss 1e-5 换成 1e-0 - prior_gauss
+            sigma_loss = -torch.log(weights[gt_none_zero_mask] + 1e-5) * \
+                gaus_factor * \
+                torch.exp(-(z_vals[gt_none_zero_mask] - coarse_depths[gt_none_zero_mask]) ** 2 / (2 * err[gt_none_zero_mask])) * \
+                    dists[gt_none_zero_mask] # 应为 (N_rays[valid depth], N_samples)
+        else:
+            sigma_loss = -torch.log(weights[gt_none_zero_mask] + 1e-5) * \
+                gaus_factor * \
+                torch.exp(-(z_vals[gt_none_zero_mask] - coarse_depths[gt_none_zero_mask]) ** 2 / (2 * err[gt_none_zero_mask])) * \
+                    dists[gt_none_zero_mask] # 应为 (N_rays[valid depth], N_samples)
         assert torch.isnan(sigma_loss).any() == False # 会出现nan？
-        sigma_loss = torch.sum(sigma_loss, dim=1) # 应为 (N_rays[valid depth])
+        assert torch.isinf(sigma_loss).any() == False # weight不加扰动就会
+        # sigma_loss = torch.sum(sigma_loss, dim=1) # 应为 (N_rays[valid depth])
         
     return depth_map, depth_var, rgb_map, weights, sigma_loss
 
@@ -436,3 +453,57 @@ def normalize_3d_coordinate(p, bound): # 这和NDC一样吗？ 感觉不是吧
     p[:, 1] = ((p[:, 1]-bound[1, 0])/(bound[1, 1]-bound[1, 0]))*2-1.0
     p[:, 2] = ((p[:, 2]-bound[2, 0])/(bound[2, 1]-bound[2, 0]))*2-1.0
     return p
+
+
+def get_rays_by_weight(H, W, fx, fy, cx, cy, c2w, depth, color,
+                       weight, device):
+    """
+    由给出的 weight map 中 >0 的位置 得到射线 用来监督 稀疏关键点的位置
+    和 对应的 coarse depth weght color u, v
+    Args:
+        H (_type_): _description_
+        W (_type_): _description_
+        fx (_type_): _description_
+        cx (_type_): _description_
+        cy (_type_): _description_
+        c2w (_type_): _description_
+        weight (_type_): _description_
+        device (_type_): _description_
+    """
+    # kpt_tup = torch.where(weight > -0) # tuple 每个是 [2] (v,u)
+    # sample_depth = depth[kpt_tup]
+    # sample_color = depth[kpt_tup]
+    
+    # coords = torch.stack(kpt_tup, 0) # (n,2)
+    
+    # kpt_u = coords[:, 1]
+    # kpt_v = coords[:, 0]
+
+    if isinstance(c2w, np.ndarray):
+        c2w = torch.from_numpy(c2w).to(device)
+    if isinstance(depth, np.ndarray):
+        depth = torch.from_numpy(depth).to(device)
+        color = torch.from_numpy(color).to(device)
+        weight = torch.from_numpy(weight).to(device)
+        
+
+    depth = depth.reshape(-1)
+    weight = weight.reshape(-1) # (h*w)
+    color = color.reshape(-1, 3) # (h*w,3)
+    
+    indices = (weight>-0).nonzero().squeeze(-1) # (m) 这里已经是去掉了本身由于 置信度太低 而没有保留下来的关键点
+    i, j = torch.meshgrid(torch.linspace( #目标图像区域 网格 list[20, 1221] list[20, 354] 
+        0, W-1, W).to(device), torch.linspace(0, H-1, H).to(device))
+    i = i.t()  # transpose (w,h)-> (h,w)
+    j = j.t()  # i和j其实就是 图像区域每像素的 下标 (u,v) 矩阵
+    i = i.reshape(-1)
+    j = j.reshape(-1)
+    kpt_u = i[indices]  # (n) 按随机的索引的索引 拿出 选择的像素的下标
+    kpt_v = j[indices]  # (n)
+    sample_depth = depth[indices]  # (n)  当depth是nan tensor shape 不对时，在这里 out of bounds
+    sample_color = color[indices]  # (n,3) 选中的像素上的深度 和 颜色
+    sample_weight = weight[indices]
+    rays_o, rays_d = get_rays_from_uv(kpt_u, kpt_v, c2w, H, W, fx, fy, cx, cy, device)
+    
+    return rays_o, rays_d, sample_depth, sample_color, sample_weight, kpt_u, kpt_v
+    

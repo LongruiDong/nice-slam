@@ -7,7 +7,7 @@ import torch
 from colorama import Fore, Style
 from torch.autograd import Variable
 
-from src.common import (get_camera_from_tensor, get_samples,
+from src.common import (get_camera_from_tensor, get_samples, get_rays_by_weight,
                         get_tensor_from_camera, random_select)
 from src.utils.datasets import get_dataset
 from src.utils.Visualizer import Visualizer
@@ -31,8 +31,9 @@ class Mapper(object):
         self.idx = slam.idx
         self.nice = slam.nice
         self.c = slam.shared_c
-        self.prior_xyzs_dict = slam.prior_xyzs_dict
-        self.prior_3dobs_dict = slam.prior_3dobs_dict # 还有对应关系
+        if self.use_prior:
+            self.prior_xyzs_dict = slam.prior_xyzs_dict
+            self.prior_3dobs_dict = slam.prior_3dobs_dict # 还有对应关系
         self.bound = slam.bound
         self.logger = slam.logger
         self.mesher = slam.mesher
@@ -69,6 +70,7 @@ class Mapper(object):
         self.every_frame = cfg['mapping']['every_frame'] #输入参数每隔x帧进行mapping
         self.color_refine = cfg['mapping']['color_refine']
         self.w_color_loss = cfg['mapping']['w_color_loss']
+        self.w_depth_loss = cfg['mapping']['w_depth_loss'] # 给depth loss 加权
         self.keyframe_every = cfg['mapping']['keyframe_every']
         self.fine_iter_ratio = cfg['mapping']['fine_iter_ratio']
         self.middle_iter_ratio = cfg['mapping']['middle_iter_ratio']
@@ -83,9 +85,10 @@ class Mapper(object):
         self.prior_camera = cfg['tracking']['prior_camera'] # 控制当前触发mapping的帧初值是否用prior kf的位姿
         self.less_sample_space = slam.less_sample_space # 是否在 surface 附近区间多重采样,对应不同的render_batch
         self.use_KL_loss = slam.use_KL_loss # 是否使用ds-nerf的sigma loss
-        self.sigma_lambda = cfg['rendering']['sigma_lambda'] # KL loss 的权重参数
+        self.sigma_lambda = float(cfg['rendering']['sigma_lambda']) # KL loss 的权重参数
         self.color_loss_mask = cfg['mapping']['color_loss_mask'] # color loss 是否用depth>0 mask
         self.use_regulation = cfg['mapping']['use_regulation'] # 是否增加对于前景的nice sigma 的正则化
+        self.use_sparse_loss = cfg['mapping']['use_sparse_loss'] # 是否增加使用稀疏点 depth color loss
         if self.save_selected_keyframes_info:
             self.selected_keyframes = {}
 
@@ -95,9 +98,9 @@ class Mapper(object):
 
         self.keyframe_dict = [] # 还是个列表 里面每个元素是dict
         self.keyframe_list = []
-        self.frame_reader = get_dataset(
-            cfg, args, self.scale, device=self.device)
-        # self.frame_reader = slam.frame_reader
+        # self.frame_reader = get_dataset(
+        #     cfg, args, self.scale, device=self.device)
+        self.frame_reader = slam.frame_reader # 何必再初始化一次呢？
         self.n_img = len(self.frame_reader)
         if 'Demo' not in self.output:  # disable this visualization in demo
             self.visualizer = Visualizer(freq=cfg['mapping']['vis_freq'], inside_freq=cfg['mapping']['vis_inside_freq'],
@@ -308,7 +311,7 @@ class Mapper(object):
         
     
     def optimize_map(self, num_joint_iters, lr_factor, idx, cur_gt_color, cur_gt_depth,
-                     gt_cur_c2w, keyframe_dict, keyframe_list, cur_c2w, keypt):
+                     gt_cur_c2w, keyframe_dict, keyframe_list, cur_c2w, cur_keypt, cur_keypt_wt):
         """
         Mapping iterations. Sample pixels from selected keyframes,
         then optimize scene representation and camera poses(if local BA enabled).
@@ -323,14 +326,16 @@ class Mapper(object):
             keyframe_dict (list): list of keyframes info dictionary.
             keyframe_list (list): list of keyframe index.
             cur_c2w (tensor): the estimated camera to world matrix of current frame. 当使用prior pose来track 这里可能为nan 
-            keypt (tensor): prior key point & 2d-3d correspondences (data api), kptid u v 3dpid(-1表示没有对应)
+            cur_keypt (tensor): prior key point & 2d-3d correspondences (data api), kptid u v 3dpid(-1表示没有对应)
+            cur_keypt_wt (tensor): 和图像大小相同 只有在有3d对应的位置上有权重>0 其余为 -0 用来拿出关键点像素 从而能得到ray
 
         Returns:
             cur_c2w/None (tensor/None): return the updated cur_c2w, return None if no BA
         """
         H, W, fx, fy, cx, cy = self.H, self.W, self.fx, self.fy, self.cx, self.cy
         c = self.c
-        prior_xyzs_dict = self.prior_xyzs_dict # 取出当前最新的稀疏点
+        if self.use_prior:
+            prior_xyzs_dict = self.prior_xyzs_dict # 取出当前最新的稀疏点
         cfg = self.cfg
         device = self.device
         bottom = torch.from_numpy(np.array([0, 0, 0, 1.]).reshape(
@@ -350,8 +355,8 @@ class Mapper(object):
                     cur_gt_color, cur_gt_depth, cur_c2w, keyframe_dict[:-1], num)
             elif self.keyframe_selection_method == 'prior':
                 num = self.mapping_window_size-2 # K-2
-                if not torch.isnan(keypt).all().item(): # 若使用先验 且 当前帧关键点非空
-                    optimize_frame = self.keyframe_selection_prior(keypt, keyframe_dict[:-1], num)
+                if not torch.isnan(cur_keypt).all().item(): # 若使用先验 且 当前帧关键点非空
+                    optimize_frame = self.keyframe_selection_prior(cur_keypt, keyframe_dict[:-1], num)
                 else: # 若当前帧不含kpt 其他策略 此时既没有coarse depth 也没有track pose初值 只能都以上个有效kf来做 且当前帧不加入窗口
                     # optimize_frame = random_select(len(self.keyframe_dict)-1, num) # 就退化为简单随机选择
                     # 拿出上一个含有kpt的kf 以他的共视拿来用
@@ -543,17 +548,17 @@ class Mapper(object):
                     self.visualizer.vis( #每一次优化前去可视化rendered的结果
                     idx, joint_iter, torch.full(size=cur_gt_color.shape[:2], fill_value=float(0)).to(device), cur_gt_color, cur_c2w, self.c, self.decoders,
                     selecti=self.slecti, selectj=self.slectj)
-                elif (not torch.isnan(cur_gt_depth).all().item()): # 本帧depth非nan 意味着pose也有 正常画
+                elif (not torch.isnan(cur_gt_depth).all().item()): # 本帧depth非nan 意味着pose也有 正常画 而且多重采样
                     # cur_gt_depth_0 = cur_gt_depth
                     self.visualizer.vis( #每一次优化前去可视化rendered的结果
                     idx, joint_iter, cur_gt_depth, cur_gt_color, cur_c2w, self.c, self.decoders,
-                    selecti=self.slecti, selectj=self.slectj)
+                    selecti=self.slecti, selectj=self.slectj, confidence=cur_keypt_wt)
             # 也打印一下 各个 kl loss    
             if (joint_iter % self.visualizer.inside_freq == 0) and (joint_iter>0): # (idx % self.visualizer.freq == 0) and 
                 if self.use_KL_loss and self.use_regulation:
                     print(f'[{self.stage}] Fid {idx:d} -- {joint_iter:d}, Re-rendering loss: {initial_loss:.2f}->{loss:.2f}. KL_loss: {initial_kl_loss:.2f}->{kl_loss:.2f}. Reg_loss: {initial_regulation_loss:.2f}->{regulation_loss:.2f}')
                 elif self.use_KL_loss and not self.use_regulation:
-                    print(f'[{self.stage}] Fid {idx:d} -- {joint_iter:d}, Re-rendering loss: {initial_loss:.2f}->{loss:.2f}. KL_loss: {initial_kl_loss:.2f}->{kl_loss:.2f}')
+                    print(f'[{self.stage}] Fid {idx:d} -- {joint_iter:d}, Re-rendering loss: {initial_loss:.2f}->{loss:.2f}. KL_loss: {initial_kl_loss:.2f}->{kl_loss:.2f}. sp_factor: {sp_factor:.2f} ')
                 elif not self.use_KL_loss and self.use_regulation:
                     print(f'[{self.stage}] Fid {idx:d} -- {joint_iter:d}, Re-rendering loss: {initial_loss:.2f}->{loss:.2f}. Reg_loss: {initial_regulation_loss:.2f}->{regulation_loss:.2f}')
                 else:
@@ -563,12 +568,20 @@ class Mapper(object):
             batch_rays_o_list = []
             batch_gt_depth_list = []
             batch_gt_color_list = []
-
+            
+            if self.use_sparse_loss:
+                # 对于有效稀疏关键点 并行地进行提取射线和渲染
+                prior_rays_d_list = []
+                prior_rays_o_list = []
+                prior_depth_list = []
+                prior_color_list = []
+                prior_kpt_wt_list = []
             camera_tensor_id = 0
             for frame in optimize_frame:
                 if frame != -1: # 最下面目前 还可能有 没有 prior depth 的kf构成
                     gt_depth = keyframe_dict[frame]['depth'].to(device)
                     gt_color = keyframe_dict[frame]['color'].to(device)
+                    kpt_weight = keyframe_dict[frame]['keypt_wt'].to(device)
                     if self.BA and frame != oldest_frame: # 最老帧位姿固定
                         camera_tensor = camera_tensor_list[camera_tensor_id]
                         camera_tensor_id += 1
@@ -579,9 +592,10 @@ class Mapper(object):
                 else: # cur_gt_depth 可能是nan tensor！为了之后batch_depth 那就在这里把gt_depth设为全0
                     if not torch.isnan(cur_gt_depth).all().item():
                         gt_depth = cur_gt_depth.to(device)
-                    else: # 当前帧是非orb kf
+                    else: # 当前帧是非orb kf # 得到的gt_depth 可能是 nan-->改为全0表示
                         gt_depth = torch.full(size=cur_gt_color.shape[:2], fill_value=float(0)).to(device)
                     gt_color = cur_gt_color.to(device)
+                    kpt_weight = cur_keypt_wt.to(device) # 可能为 -0
                     if self.BA:
                         camera_tensor = camera_tensor_list[camera_tensor_id]
                         c2w = get_camera_from_tensor(camera_tensor)
@@ -592,7 +606,11 @@ class Mapper(object):
                     else:
                         c2w = cur_c2w
 
-                # 上面得到的gt_depth 可能是 nan-->改为全0表示
+                if self.use_sparse_loss:
+                    # 取出当前帧现在位姿后 用单独函数来提取出 对应的射线
+                    prior_rays_o, prior_rays_d, prior_depth, prior_color, prior_weight, kpt_i, kpt_j = get_rays_by_weight(
+                        H, W, fx, fy, cx, cy, c2w, gt_depth, gt_color, kpt_weight, device
+                    )
                     
                 # 每次batch iter 就要随机采样一次 batch_gt_depth 里面可能有nan
                 batch_rays_o, batch_rays_d, batch_gt_depth, batch_gt_color, sti, stj = get_samples(
@@ -600,15 +618,32 @@ class Mapper(object):
                 if frame == -1: #记录当前帧 本次循环的采样点 #  idx -1 就是指当前帧
                     self.slecti = sti
                     self.slectj = stj
+                    if self.use_sparse_loss and (not torch.isnan(cur_gt_depth).all().item()):
+                        self.selcti = kpt_i
+                        self.selectj = kpt_j
                 batch_rays_o_list.append(batch_rays_o.float())
                 batch_rays_d_list.append(batch_rays_d.float())
                 batch_gt_depth_list.append(batch_gt_depth.float())
                 batch_gt_color_list.append(batch_gt_color.float())
+                if self.use_sparse_loss:
+                    prior_rays_o_list.append(prior_rays_o.float())
+                    prior_rays_d_list.append(prior_rays_d.float())
+                    prior_depth_list.append(prior_depth.float())
+                    prior_color_list.append(prior_color.float())
+                    prior_kpt_wt_list.append(prior_weight.float())
+                
 
             batch_rays_d = torch.cat(batch_rays_d_list) # 不是归一化的！
             batch_rays_o = torch.cat(batch_rays_o_list)
             batch_gt_depth = torch.cat(batch_gt_depth_list) # 6000 类似于batchsize batch_gt_depth 里面可能有nan
             batch_gt_color = torch.cat(batch_gt_color_list) # 6000,3
+            
+            if self.use_sparse_loss:
+                prior_rays_o = torch.cat(prior_rays_o_list) # (m)
+                prior_rays_d = torch.cat(prior_rays_d_list)
+                prior_depth = torch.cat(prior_depth_list)
+                prior_color = torch.cat(prior_color_list)
+                prior_weight = torch.cat(prior_kpt_wt_list)
 
             if self.nice: # and (not torch.isnan(batch_gt_depth).all().item())
                 # should pre-filter those out of bounding box depth value 还不涉及 ray上积分的bound
@@ -627,6 +662,23 @@ class Mapper(object):
                 batch_rays_o = batch_rays_o[inside_mask]
                 batch_gt_depth = batch_gt_depth[inside_mask]
                 batch_gt_color = batch_gt_color[inside_mask]
+                
+                if self.use_sparse_loss:
+                    with torch.no_grad():
+                        det_rays_o = prior_rays_o.clone().detach().unsqueeze(-1)  # (N, 3, 1)
+                        det_rays_d = prior_rays_d.clone().detach().unsqueeze(-1)  # (N, 3, 1)
+                        t = (self.bound.unsqueeze(0).to( # (3,2) (1,3,2) N 3 2
+                            device)-det_rays_o)/det_rays_d
+                        t, _ = torch.min(torch.max(t, dim=2)[0], dim=1) # ->(N,3)-> N 改视线 最早和box相交时 d的系数（深度？ 但这里）
+                        inside_mask = t >= prior_depth # 该系数 当景物在bound内时  才考虑使用！
+                        # intmask = inside_mask.long()
+                    prior_rays_d = prior_rays_d[inside_mask]
+                    prior_rays_o = prior_rays_o[inside_mask]
+                    prior_depth = prior_depth[inside_mask]
+                    prior_color = prior_color[inside_mask]
+                    prior_weight = prior_weight[inside_mask]
+                
+                # 对于prior 的也捋一遍
             # batch_gt_depth 要么 全nan 要么正常 不是的 当前帧可能无深度 但前面已经转为0了 所以就是0和非0混合
             if torch.isnan(batch_gt_depth).all().item() or batch_gt_depth is None:
                 print('[debug] batch_gt_depth should not here!')
@@ -644,9 +696,16 @@ class Mapper(object):
                 
             else: # 原始情况
                 ret = self.renderer.render_batch_ray(c, self.decoders, batch_rays_d,
-                                                    batch_rays_o, device, self.stage,
+                                                    batch_rays_o, device, self.stage, #)
                                                     gt_depth=None if ( self.coarse_mapper or (not self.guide_sample) or (not validflag) ) else batch_gt_depth) # 突然意识到之前这里 还是会根据gt depth 采样ray上表面附近的
-            depth, uncertainty, color, weights, sigma_loss = ret # 这里的输出不同 但sigma_loss可能仍是None
+            depth, uncertainty, color, weights, sigma_loss, _ = ret # 这里的输出不同 但sigma_loss可能仍是None
+            if self.use_sparse_loss:
+                # 对于稀疏点的 数据 都用多重采样 也要用到weight
+                prior_ret = self.renderer.render_batch_ray_tri(c, self.decoders, prior_rays_d,
+                                                        prior_rays_o, device, self.stage,
+                                                        gt_depth=prior_depth, # 对于有效稀疏点 coarse深度和置信度都有
+                                                        confidence=prior_weight) #
+                depth_sp, uncertainty_sp, color_sp, weights_sp, sigma_loss_sp, _ = prior_ret
             # 和 tracker中的改动一致 现在已经不会是None
             if batch_gt_depth is not None:
                 if validflag: # 非全0
@@ -656,27 +715,45 @@ class Mapper(object):
             # 这里测试 loss 改为 color only loss
             if self.rgbonly:
                 loss = torch.tensor(0.0, requires_grad=True).to(device)  # 其他阶段都没color 下面还要加
-                self.w_color_loss = 1.
+                # self.w_color_loss = 1.
                 # loss = torch.abs(
                 #     batch_gt_color[depth_mask]-color[depth_mask]).sum() # batch_gt_depth[depth_mask]-depth[depth_mask] batch_gt_color[depth_mask]-color[depth_mask]
             else: # 否则还是原来 rgb-d
-                loss = torch.abs(
+                depth_loss = torch.abs(
                     batch_gt_depth[depth_mask]-depth[depth_mask]).sum()
+                loss = self.w_depth_loss * depth_loss
+            if self.use_sparse_loss: # 对稀疏点loss 加权 使用归一化后的置信度
+                prior_mask = (prior_depth>0)
+                prior_weight = (prior_weight / prior_weight.max() + 1e-10) # (0, 1)
+                sp_factor = float(depth.shape[0]) / depth_sp.shape[0] # 数量上平衡 一般点 和 系数深度点的数量上的比值
+                sp_depth_loss = (torch.abs( #
+                    prior_depth-depth_sp) * prior_weight)[prior_mask].sum()
+                loss += sp_factor* self.w_depth_loss * sp_depth_loss
             if ((not self.nice) or (self.stage == 'color')): # 才发现 其他stage color是0 所以之前 rgb only 时应该 都改为color stage,反正其他stage color loss是错的
                 if self.color_loss_mask: # 是否使用depth 的mask
                     color_loss = torch.abs(batch_gt_color[depth_mask] - color[depth_mask]).sum()
                 else:
                     color_loss = torch.abs(batch_gt_color - color).sum()
                 weighted_color_loss = self.w_color_loss*color_loss
-                if self.rgbonly:
-                    self.w_color_loss = 1.
-                    weighted_color_loss = color_loss
+                # if self.rgbonly:
+                #     self.w_color_loss = 1.
+                #     weighted_color_loss = color_loss
                 loss += weighted_color_loss
+                if self.use_sparse_loss:
+                    sp_color_loss = torch.abs(
+                        prior_color[prior_mask] - color_sp[prior_mask]).sum()
+                    loss += sp_factor* self.w_color_loss * sp_color_loss
             
             # 当使用KL loss 时 继续添加
-            if self.use_KL_loss and sigma_loss is not None:
-                kl_loss = sigma_loss.mean() # (B,) -> 平均到一个值了
-                # loss += self.sigma_lambda*kl_loss # 权重求和
+            if self.use_KL_loss and (sigma_loss is not None or sigma_loss_sp is not None):
+                kl_loss = 0
+                if sigma_loss is not None:
+                    kl_loss += torch.sum(sigma_loss, dim=1).mean() # (B,) -> 平均到一个值了
+                    # loss += self.sigma_lambda*kl_loss # 权重求和
+                # if self.use_sparse_loss: 这些位置已经用稀疏点depth直接监督过了
+                #     kl_loss_sp = torch.sum(sigma_loss_sp, dim=1).mean()
+                #     kl_loss += kl_loss_sp
+                loss += self.sigma_lambda*kl_loss
 
             if self.use_regulation and validflag: # 对于 nice 当先验深度非全0时 也像下面那样同样正则化 前景
                 point_sigma = self.renderer.regulation_occ(
@@ -740,7 +817,7 @@ class Mapper(object):
 
     def run(self):
         cfg = self.cfg # gt_depth 其实可以是 粗糙的初始深度 
-        idx, gt_color, gt_depth, gt_c2w, _, _ = self.frame_reader[0]
+        idx, gt_color, gt_depth, gt_c2w, _, _, _ = self.frame_reader[0]
 
         self.estimate_c2w_list[0] = gt_c2w.cpu()
         init = True # 初始 需要做初始化
@@ -752,9 +829,14 @@ class Mapper(object):
                     idx = idx.item()
                 if idx == self.n_img-1: #最后一帧也会优化的
                     break
+                
                 if self.sync_method == 'strict': #输入参数每隔x帧进行mapping 增加 若是orb kf 也开启  之后可以再是 只有在kf map  idx % self.every_frame == 0 or 试验后还是得加上更好一些
-                    if ( idx % self.every_frame == 0 or (idx in self.frame_reader.prior_poses.keys()) ) and idx != prev_idx:
-                        break #否则就一直在里面循环
+                    if self.use_prior:
+                        if ( idx % self.every_frame == 0 or (idx in self.frame_reader.prior_poses.keys()) ) and idx != prev_idx:
+                            break #否则就一直在里面循环
+                    else:
+                        if idx % self.every_frame == 0 and idx != prev_idx:
+                            break #否则就一直在里面循环
 
                 elif self.sync_method == 'loose':
                     if idx == 0 or idx >= prev_idx+self.every_frame//2:
@@ -770,7 +852,7 @@ class Mapper(object):
                 print(prefix+"Mapping Frame ", idx)
                 print(Style.RESET_ALL)
 
-            _, gt_color, gt_depth, gt_c2w, _, keypt = self.frame_reader[idx] # prior_c2w
+            _, gt_color, gt_depth, gt_c2w, _, keypt, prior_weight = self.frame_reader[idx] # prior_c2w
 
             if not init: #初始化已结束
                 lr_factor = cfg['mapping']['lr_factor'] #非初始化 
@@ -809,7 +891,7 @@ class Mapper(object):
 
                 _ = self.optimize_map(num_joint_iters, lr_factor, idx, gt_color, gt_depth,
                                       gt_c2w, self.keyframe_dict, self.keyframe_list, cur_c2w=cur_c2w, 
-                                      keypt=keypt) # 增加了keypt的输入
+                                      cur_keypt=keypt, cur_keypt_wt=prior_weight) # 增加了keypt的输入 有效 keypt的weight
                 if self.BA:
                     cur_c2w = _ # 用返回值更新pose 当使用prior pose 时 窗口内不在包含当前帧 那么这里就还是nan tensor!
                     self.estimate_c2w_list[idx] = cur_c2w
@@ -822,7 +904,7 @@ class Mapper(object):
                         self.keyframe_list.append(idx) #关键帧列表 以 frame_id组成
                         self.keyframe_dict.append({'gt_c2w': gt_c2w.cpu(), 'idx': idx, 'color': gt_color.cpu(
                         ), 'keypt': keypt.cpu(), # 前面这些都是定值，后面的是需要优化后不断更新
-                        'depth': gt_depth.cpu(), 'est_c2w': cur_c2w.clone()})
+                        'keypt_wt': prior_weight.cpu(), 'depth': gt_depth.cpu(), 'est_c2w': cur_c2w.clone()})
 
             if self.low_gpu_mem:
                 torch.cuda.empty_cache()

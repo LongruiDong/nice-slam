@@ -129,7 +129,7 @@ class BaseDataset(Dataset):
         if self.use_prior:
             if keypt_path is None:
                 keypt_data = None
-                prior_weight = torch.zeros_like(depth_data)
+                prior_weight = torch.zeros((self.H, self.W))
             else: # kptid u v 3dpid(-1表示没有对应) x(-1) y z
                 keypt_arr = np.loadtxt(keypt_path, skiprows=1)[:, :4] # (m,4)
                 keypt_data = torch.from_numpy(keypt_arr) # 这里kpt像素坐标 是在原图size上的
@@ -216,7 +216,7 @@ class BaseDataset(Dataset):
                     keypt_data[:, 1] *= sx
                     keypt_data[:, 2] *= sy # 后面取出的时候要四舍五入转整数
                 prior_weight = F.interpolate( # resize 也要对权重插值 因为无kpt时 该矩阵全0 还要resize
-                    prior_weight[None, None], self.crop_size, mode='nearest')[0, 0]
+                    prior_weight[None, None], self.crop_size, mode='nearest')[0, 0] # 若用最近邻会少很多非0的值
 
         edge = self.crop_edge
         if edge > 0:
@@ -340,20 +340,30 @@ class Replica(BaseDataset):
             keypt_arr = np.loadtxt(kpt_path, skiprows=1)[:, :4] # (m,4)
             # keypt_data = torch.from_numpy(keypt_arr) # 这里kpt像素坐标 是在原图size上的
             w_map = -np.zeros((self.H, self.W)) # 初始不确定性 全0 
-            # 拿出那些 由深度的 关键点
-            kt_arr = keypt_arr[keypt_arr[:, 3]>0]
+            # 拿出那些 由深度的 关键点 应该
+            kt_arr = keypt_arr[keypt_arr[:, 3]>=0]
+            
+            wt_arr = np.array([ self.orb_xyzs_dict[int(kt_arr[j, 3])][3] for j in range(kt_arr.shape[0])])
+            # 分位数 阈值 相当于拿出 较大的1-30 %
+            per_th = np.percentile(wt_arr, 21)
+            
+            # # err 方差最大 0，0225 标准差最大 0.15 置信度 最小值 20/3
+            # fact = (20./3) / wt_th
+            wt_th = min( (10./2),  per_th) # 除了保证 满足方差要求 也要滤掉本张图里 较小的20%
             
             pdata = []
             for j in range(kt_arr.shape[0]):
-                assert kt_arr[j, 3] >= 0
+                assert kt_arr[j, 3] >= 0 # 没出现过
                 mpt_id = int(kt_arr[j, 3])
                 # 拿出对应地图点的 weigh
                 wt_mpt = self.orb_xyzs_dict[mpt_id][3] # list 里的最后一项
+                if wt_mpt < wt_th: # 1e-3: 置信度太小就不要
+                    continue
                 uj, vj = int(np.around(kt_arr[j, 1:3])[0]), int(np.around(kt_arr[j, 1:3])[1])  # 取整
                 # 赋值到 w_map
                 w_map[vj, uj] = wt_mpt
                 pdata+= [np.array([uj, vj, wt_mpt])]
-            pdata = np.stack(pdata, 0)
+            pdata = np.stack(pdata, 0) # 会出现(w_map>-0.).sum() != kt_arr.shape[0]
             self.kpt_weight[idx] = torch.from_numpy(w_map)
             
             # # 可视化有效关键点权重
@@ -512,10 +522,16 @@ class Replica(BaseDataset):
         # 再来计算整体误差的和 以及各点的不确定性
         geo_err = np.array([ dic_mappts[key][2] for key in dic_mappts.keys() ])
         err_mean = np.mean(geo_err)
+        wt_arr = 2*np.exp(-(geo_err/err_mean)**2)
+        # 分位数 拿出 较小的
+        wt_th = np.percentile(wt_arr, 30)
+        # err 方差最大 0，0225 标准差最大 0.15 0.2  置信度 最小值 20./3 5
+        fact = (10./2) / wt_th
+        wt_arr *= fact
         for key in dic_mappts.keys():
             va = dic_mappts[key]
             err = va[2]
-            weight = 2 * np.exp(-(err/err_mean)**2) # (0,1] 之间的值 ds-nerf 中是x2 按下不表
+            weight = 2 * np.exp(-(err/err_mean)**2) * fact # (0,1] 之间的值 ds-nerf 中是x2 按下不表 5
             dic_mappts[key].append(weight) # 再补充一个列表元素 保存weight
         xyzs = np.stack(xyzs, 0) # (n,3)
         self.orb_xyzs = xyzs
