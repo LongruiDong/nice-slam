@@ -166,12 +166,13 @@ def load_traj(gtpath, save=None, firstI = False):
         timestamp = float(i * 1.0/fps) # 根据帧率设置伪时间
         line = lines[i]
         c2w = np.array(list(map(float, line.split()))).reshape(4, 4)
-        #测试首帧归一化
-        if inv_pose is None: # 首帧位姿归I 但是好像只有tum做了归一化处理 why
-            inv_pose = np.linalg.inv(c2w) #T0w
-            c2w = np.eye(4)
-        else:
-            c2w = inv_pose@c2w # T0w Twi = T0i
+        if firstI:
+            #测试首帧归一化
+            if inv_pose is None: # 首帧位姿归I 但是好像只有tum做了归一化处理 why
+                inv_pose = np.linalg.inv(c2w) #T0w
+                c2w = np.eye(4)
+            else:
+                c2w = inv_pose@c2w # T0w Twi = T0i
         # 转为tum
         tq = SE3toQT(c2w)
         ttq = np.concatenate([np.array([timestamp]), tq], 0) #  带上时间戳
@@ -564,6 +565,7 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
     scale = float(s) # float(1./s)
     print('est map should x {}'.format(scale))
 
+    return 0
     # 投影的话还是要有每帧位姿 再跑前面的orbslam 插值 不准 就先只用kf的吧
     kf_orb_pose = copy.deepcopy(estpose)
     print('load orb-mono pose(tum): {} \n size: {}, {}'.format(kftrajfile, kf_orb_pose.shape[0], kf_orb_pose.shape[1]))

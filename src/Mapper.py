@@ -745,8 +745,9 @@ class Mapper(object):
                     loss += sp_factor* self.w_color_loss * sp_color_loss
             
             # 当使用KL loss 时 继续添加
+            kl_loss = 0
             if self.use_KL_loss and (sigma_loss is not None or sigma_loss_sp is not None):
-                kl_loss = 0
+                # kl_loss = 0
                 if sigma_loss is not None:
                     kl_loss += torch.sum(sigma_loss, dim=1).mean() # (B,) -> 平均到一个值了
                     # loss += self.sigma_lambda*kl_loss # 权重求和

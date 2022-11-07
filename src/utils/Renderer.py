@@ -489,7 +489,7 @@ class Renderer(object):
                 sigma_loss = torch.cat(sigma_loss_list, dim=0)
                 if sigma_loss.shape[0] > 0:
                     
-                    gt_none_zero_mask = confidence > 0 # 只管 kpt 的位置
+                    gt_none_zero_mask = gt_depth > 0 # 只管 kpt 的位置 confidence
                     gt_depth_surface = gt_depth[gt_none_zero_mask]
                     weights_valid = weights[gt_none_zero_mask]
                     z_vals_valid = z_vals[gt_none_zero_mask]
@@ -507,7 +507,7 @@ class Renderer(object):
                                                z_vals_valid[k*interval, :].cpu().numpy(),
                                                sigma_loss[k*interval, :].cpu().numpy(),
                                                os.path.join(weight_vis_dir, prefix+f'_ray_%d.png'%k),
-                                               confidence=confidence_valid)
+                                               confidence=confidence_valid[k*interval].cpu().numpy())
                 
                 # 由于前面 是分batch的 不能统一只关注kpt 这里单独渲染kpt 的ray
                 
@@ -571,13 +571,15 @@ class Renderer(object):
         # 再画个 其代表的高斯分布吧
         # err = 0.02 # 暂时以此为方差吧 之后是以实际方差来代替
         err = (1. / confidence) ** 2
+        if confidence == 0.:
+           err = 0.04 
         prior_y = 1./(np.sqrt(2*np.pi*err)) * np.exp(- (z_vals - prior_depth) ** 2 / (2*err))
         axs[0].plot(z_vals, prior_y, c='tab:orange')
         # axs[0].vlines(prior_depth, linestyle='dashed', color='red')
         axs[1].plot(z_vals, sigma_loss) # 画loss
         axs[1].scatter(z_vals, sigma_loss, c='tab:orange', s=2) # 画loss
-        axs[0].set_title('ray weight. prior depth std: {}'.format(np.sqrt(err)))
-        axs[1].set_title('KL loss: {}'.format(np.sum(sigma_loss)))
+        axs[0].set_title('ray weight. prior depth std: {:.4f}'.format(np.sqrt(err)))
+        axs[1].set_title('KL loss: {:.4f}'.format(np.sum(sigma_loss)))
         # axs.set_xticks([])
         # axs.set_yticks([])
         plt.savefig(plotpath, dpi=200)
