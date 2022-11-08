@@ -47,13 +47,13 @@ rendering:
   use_KL_loss: False # 是否使用ds-nerf的sigma loss True
   # https://github.com/dunbar12138/DSNeRF/blob/d9deb70ac1464348aebbe5e32fc98aeca1920f70/run_nerf.py#L527
   raw_noise_std: 1.0 # 'std dev of noise added to regularize sigma_a output, 1e0 recommended' 只是对于nerf nice-slam还用不上
-  sigma_lambda: 0.2 # 权重因子 used for KL loss 0.1 
+  sigma_lambda: 0.05 # 权重因子 used for KL loss 0.1 
 data:
   input_folder: Datasets/Replica/office0
-  output: output/Replica_prior/office0gt-sp-resize2-5hz-cdguide-lss #-debug-KLloss # onlyvis -woguide -it1k  ertune office0gt-nodloss1-woNsurf-Ni32-p1k-f4k-it4k-init
+  output: output/Replica_prior/office0gt-spkl-resize2-5hz-cdguide-lss #-debug-KLloss # onlyvis -woguide -it1k  ertune office0gt-nodloss1-woNsurf-Ni32-p1k-f4k-it4k-init
   prior_folder: /home/dlr/Project1/ORB_SLAM2_Enhanced/result/replica/office0
 cam:
   depth_trunc: 8 # add for limit bound discard larger depth -1| 对于prior depth 得用
   # 增加根据dnet预测的深度的不确定性来prune pred depth
   dstdv_cut_max: -1  # 对于office 实际最大值在0.35左右 0.25 0.2 0.15
-  crop_size: [340,600] # 为了和离线公平对比 使用一半大小的图片
+  # crop_size: [340,600] # 为了和离线公平对比 使用一半大小的图片

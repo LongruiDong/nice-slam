@@ -25,8 +25,8 @@ CUDA_VISIBLE_DEVICES=0 nohup python -W ignore run.py configs/Replica/office3gt-s
 
 CUDA_VISIBLE_DEVICES=1 nohup python -W ignore run.py configs/Replica/office4gt-spcd-KL.yaml >log/office4gt-spcd-KL.log 2>&1 &
 
-# CUDA_VISIBLE_DEVICES=1 nohup python -W ignore run.py configs/Replica/room0gt-spcd-KL.yaml >log/room0gt-spcd-KL.log 2>&1 &
+CUDA_VISIBLE_DEVICES=1 nohup python -W ignore run.py configs/Replica/room0gt-spcd-KL.yaml >log/room0gt-spcd-KL.log 2>&1 &
 
-# CUDA_VISIBLE_DEVICES=2 nohup python -W ignore run.py configs/Replica/room1gt-spcd-KL.yaml >log/room1gt-spcd-KL.log 2>&1 &
+CUDA_VISIBLE_DEVICES=2 nohup python -W ignore run.py configs/Replica/room1gt-spcd-KL.yaml >log/room1gt-spcd-KL.log 2>&1 &
 
-# CUDA_VISIBLE_DEVICES=0 nohup python -W ignore run.py configs/Replica/room2gt-spcd-KL.yaml >log/room2gt-spcd-KL.log 2>&1 & 
+CUDA_VISIBLE_DEVICES=0 nohup python -W ignore run.py configs/Replica/room2gt-spcd-KL.yaml >log/room2gt-spcd-KL.log 2>&1 & 

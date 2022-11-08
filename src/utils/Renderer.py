@@ -570,9 +570,9 @@ class Renderer(object):
         axs[0].axvline(prior_depth, linestyle='--', color='red') # 竖线表示先验深度的位置
         # 再画个 其代表的高斯分布吧
         # err = 0.02 # 暂时以此为方差吧 之后是以实际方差来代替
-        err = (1. / confidence) ** 2
+        err = (0.1 / confidence) ** 2
         if confidence == 0.:
-           err = 0.04 
+           err = 0.0225 # 0.04 
         prior_y = 1./(np.sqrt(2*np.pi*err)) * np.exp(- (z_vals - prior_depth) ** 2 / (2*err))
         axs[0].plot(z_vals, prior_y, c='tab:orange')
         # axs[0].vlines(prior_depth, linestyle='dashed', color='red')

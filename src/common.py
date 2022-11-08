@@ -313,9 +313,9 @@ def raw2outputs_nerf_color(raw, z_vals, rays_d, occupancy=False,
         # gt_none_zero_mask = gt_none_zero_mask.squeeze(-1)
         # 由置信度 计算 方差  两者是反相关
         if confidence is not None:
-            err = (1. / confidence) ** 2
+            err = (0.1 / confidence) ** 2
         else:
-            err = torch.ones_like(depth_var) * 0.04
+            err = torch.ones_like(depth_var) * 0.0225 # 0.04 0.0225
         err = err.reshape(-1, 1)
         # # 对远方差进行数值调整 最大值不超 0.0225
         # fact = 0.0225/err.max()

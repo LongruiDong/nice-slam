@@ -749,10 +749,12 @@ class Mapper(object):
             if self.use_KL_loss and (sigma_loss is not None or sigma_loss_sp is not None):
                 # kl_loss = 0
                 if sigma_loss is not None:
-                    kl_loss += torch.sum(sigma_loss, dim=1).mean() # (B,) -> 平均到一个值了
+                    sigma_sum = torch.sum(sigma_loss, dim=1) # 避免计入那些 较大的值一般是 深度+ 标准差接近边界
+                    kl_loss += sigma_sum[sigma_sum<500.].mean() # (B,) -> 平均到一个值了
                     # loss += self.sigma_lambda*kl_loss # 权重求和
-                # if self.use_sparse_loss: 这些位置已经用稀疏点depth直接监督过了
-                #     kl_loss_sp = torch.sum(sigma_loss_sp, dim=1).mean()
+                # if self.use_sparse_loss: # 这些位置已经用稀疏点depth直接监督过了
+                #     sigma_sum_sp= torch.sum(sigma_loss_sp, dim=1)
+                #     kl_loss_sp = sigma_sum_sp[sigma_sum_sp<500.].mean()
                 #     kl_loss += kl_loss_sp
                 loss += self.sigma_lambda*kl_loss
 

@@ -50,10 +50,10 @@ rendering:
   sigma_lambda: 0.01 # 权重因子 used for KL loss 0.1 
 data:
   input_folder: Datasets/Replica/office0
-  output: output/Replica_prior/office0gt-sp-5hz-KLoss-stagecolor # -resize2 -debug-KLloss # onlyvis -woguide -it1k  ertune office0gt-nodloss1-woNsurf-Ni32-p1k-f4k-it4k-init
+  output: output/Replica_prior/office0gt-sp-resize2-5hz-KLossfilter-stagecolor # -resize2 -debug-KLloss # onlyvis -woguide -it1k  ertune office0gt-nodloss1-woNsurf-Ni32-p1k-f4k-it4k-init
   prior_folder: /home/dlr/Project1/ORB_SLAM2_Enhanced/result/replica/office0
 cam:
   depth_trunc: 8 # add for limit bound discard larger depth -1| 对于prior depth 得用
   # 增加根据dnet预测的深度的不确定性来prune pred depth
   dstdv_cut_max: -1  # 对于office 实际最大值在0.35左右 0.25 0.2 0.15
-  # crop_size: [340,600] # 为了和离线公平对比 使用一半大小的图片
+  crop_size: [340,600] # 为了和离线公平对比 使用一半大小的图片

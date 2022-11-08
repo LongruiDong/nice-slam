@@ -348,8 +348,8 @@ class Replica(BaseDataset):
             per_th = np.percentile(wt_arr, 21)
             
             # # err 方差最大 0，0225 标准差最大 0.15 置信度 最小值 20/3
-            # fact = (20./3) / wt_th
-            wt_th = min( (10./2),  per_th) # 除了保证 满足方差要求 也要滤掉本张图里 较小的20%
+            # fact = (20./3) / wt_th (10./2)
+            wt_th = max( (2./3),  per_th) # 除了保证 满足方差要求 也要滤掉本张图里 较小的20%
             
             pdata = []
             for j in range(kt_arr.shape[0]):
@@ -523,15 +523,15 @@ class Replica(BaseDataset):
         geo_err = np.array([ dic_mappts[key][2] for key in dic_mappts.keys() ])
         err_mean = np.mean(geo_err)
         wt_arr = 2*np.exp(-(geo_err/err_mean)**2)
-        # 分位数 拿出 较小的
-        wt_th = np.percentile(wt_arr, 30)
-        # err 方差最大 0，0225 标准差最大 0.15 0.2  置信度 最小值 20./3 5
-        fact = (10./2) / wt_th
-        wt_arr *= fact
+        # # 分位数 拿出 较小的
+        # wt_th = np.percentile(wt_arr, 30)
+        # # err 方差最大 0，0225 标准差最大 0.15 0.2  置信度 最小值 20./3 5
+        # fact = (10./2) / wt_th
+        # wt_arr *= fact
         for key in dic_mappts.keys():
             va = dic_mappts[key]
             err = va[2]
-            weight = 2 * np.exp(-(err/err_mean)**2) * fact # (0,1] 之间的值 ds-nerf 中是x2 按下不表 5
+            weight = 2 * np.exp(-(err/err_mean)**2) # * fact # (0,1] 之间的值 ds-nerf 中是x2 按下不表 5
             dic_mappts[key].append(weight) # 再补充一个列表元素 保存weight
         xyzs = np.stack(xyzs, 0) # (n,3)
         self.orb_xyzs = xyzs
