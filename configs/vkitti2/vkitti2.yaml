@@ -1,0 +1,40 @@
+dataset: 'vkitti2'
+sync_method: strict
+grid_len: #对于outdoor该如何设 for scene01
+  coarse: 30 # 20
+  middle: 5.2 # 2.64
+  fine: 2.6 #1.32
+  color: 2.6
+  bound_divisable: 0.32
+tracking:
+  vis_freq: 50
+  vis_inside_freq: 25
+  ignore_edge_W: 20
+  ignore_edge_H: 20
+  seperate_LR: True #? 分开优化旋转 平移 好像 True False
+  const_speed_assumption: True
+  gt_camera: True #? True False
+  lr: 0.003 # 0.01     
+  pixels: 4000 # 5000
+  iters: 100
+mapping:
+  every_frame: 3 #? mapping的频率 1 10 3
+  vis_freq: 6 #当前帧是否要可始化中间render结果 6
+  vis_inside_freq: 20 # 优化中每几步进行可视化
+  mesh_freq: 50
+  ckpt_freq: 500
+  keyframe_every: 50 #和关键帧密度有关
+  mapping_window_size: 20 # 20 10
+  pixels: 6000 #被用来优化的图像上的像素数吧
+  iters_first: 1500
+  iters: 80 #60  
+
+cam:  #NOTE: intrinsic is different per scene in TUM e.g: Scene01
+  H: 375 # 480 375
+  W: 1242 # 640 1242
+  fx: 725.0087
+  fy: 725.0087
+  cx: 620.5 #318.6
+  cy: 187 #255.3
+  png_depth_scale: 100 #设置 https://europe.naverlabs.com/research/computer-vision/proxy-virtual-worlds-vkitti-2/
+  crop_edge: 0

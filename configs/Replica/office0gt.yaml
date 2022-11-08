@@ -1,0 +1,19 @@
+inherit_from: configs/Replica/replica.yaml
+# scale: 5 # 深度和pose 平移都x此尺度1 4 5 测试
+tracking:
+  gt_camera: True #? True False
+mapping:
+  bound: [[-5.5,5.9],[-6.7,5.4],[-4.7,5.3]]
+  marching_cubes_bound: [[-5.5,5.9],[-6.7,5.4],[-4.7,5.3]]
+
+  BA: False # True #mapping是否一同优化位姿 False
+  iters_first: 2000 # 1500| 2000
+  iters: 100 # 测试增大迭代次数 60| 100 120
+  no_vis_on_first_frame: False # True
+data:
+  input_folder: Datasets/Replica/office0
+  output: output/Replica/office0gt-nodloss-2000-100 # 增大迭代次数
+cam:
+  # depth_trunc: -1 # add for limit bound discard larger depth
+  # 增加根据dnet预测的深度的不确定性来prune pred depth
+  dstdv_cut_max: -1  # 对于office 实际最大值在0.35左右 0.25 0.2 0.15

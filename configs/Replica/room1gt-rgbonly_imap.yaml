@@ -1,0 +1,12 @@
+inherit_from: configs/Replica/replica_imap.yaml
+tracking:
+  gt_camera: True #? True False
+mapping:
+  bound: [[-7.0,2.8],[-4.6,4.3],[-3.0,2.9]]
+  marching_cubes_bound: [[-7.0,2.8],[-4.6,4.3],[-3.0,2.9]]
+  BA: False # True #mapping是否一同优化位姿 False
+data:
+  input_folder: Datasets/Replica/room1
+  output: /mnt/lustre/donglongrui/nice-slam/output_imap_bl/Replica/room1gtp-rgb
+# cam:
+  # crop_size: [340,600] # 使用一半大小的图片

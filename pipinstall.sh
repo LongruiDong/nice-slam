@@ -1,0 +1,113 @@
+#!/bin/bash
+
+src=https://pkg.sensetime.com/repository/pypi-proxy/simple/
+host=pkg.sensetime.com
+
+evalset=(
+    addict==2.4.0
+    anyio==3.5.0
+    argon2-cffi==21.3.0
+    argon2-cffi-bindings==21.2.0
+    argparse==1.4.0
+    attrs==21.4.0
+    babel==2.9.1
+    backcall==0.2.0
+    beautifulsoup4==4.10.0
+    bleach==4.1.0
+    charset-normalizer==2.0.12
+    cloudpickle==2.0.0
+    colorama==0.4.4
+    dask==2022.2.0
+    debugpy==1.6.0
+    decorator==5.1.1
+    defusedxml==0.7.1
+    deprecation==2.1.0
+    entrypoints==0.4
+    filelock==3.6.0
+    fsspec==2022.2.0
+    gdown==4.4.0
+    imageio==2.16.1
+    imath==0.0.1
+    importlib-metadata==4.11.3
+    importlib-resources==5.6.0
+    ipykernel==6.10.0
+    ipython==7.32.0
+    ipython-genutils==0.2.0
+    ipywidgets==7.7.0
+    jedi==0.18.1
+    jinja2==3.1.1
+    joblib==1.1.0
+    json5==0.9.6
+    jsonschema==4.4.0
+    jupyter-client==7.2.0
+    jupyter-core==4.9.2
+    jupyter-packaging==0.12.0
+    jupyter-server==1.16.0
+    jupyterlab==3.3.2
+    jupyterlab-pygments==0.1.2
+    jupyterlab-server==2.12.0
+    jupyterlab-widgets==1.1.0
+    locket==0.2.1
+    markupsafe==2.1.1
+    mathutils==2.81.2
+    matplotlib-inline==0.1.3
+    mistune==0.8.4
+    nbclassic==0.3.7
+    nbclient==0.5.13
+    nbconvert==6.4.5
+    nbformat==5.2.0
+    nest-asyncio==1.5.4
+    networkx==2.6.3
+    notebook==6.4.10
+    notebook-shim==0.1.0
+    numpy==1.21.5
+    # open3d==0.13.0
+    opencv-python==4.5.5.64
+    openexr==1.3.7
+    packaging==21.3
+    pandas==1.3.5
+    pandocfilters==1.5.0
+    parso==0.8.3
+    partd==1.2.0
+    pexpect==4.8.0
+    pickleshare==0.7.5
+    prometheus-client==0.13.1
+    prompt-toolkit==3.0.28
+    psutil==5.9.0
+    ptyprocess==0.7.0
+    pygments==2.11.2
+    pyrsistent==0.18.1
+    pytz==2022.1
+    pywavelets==1.3.0
+    pyyaml==6.0
+    pyzmq==22.3.0
+    rtree==0.9.7
+    scikit-image==0.19.2
+    scikit-learn==1.0.2
+    scipy==1.7.3
+    seaborn==0.11.2
+    send2trash==1.8.0
+    sniffio==1.2.0
+    soupsieve==2.3.1
+    terminado==0.13.3
+    testpath==0.6.0
+    threadpoolctl==3.1.0
+    tifffile==2021.11.2
+    tomlkit==0.10.1
+    toolz==0.11.2
+    tqdm==4.63.1
+    traitlets==5.1.1
+    trimesh==3.10.7
+    urllib3==1.26.9
+    wcwidth==0.2.5
+    webencodings==0.5.1
+    websocket-client==1.3.2
+    widgetsnbextension==3.6.0
+    zipp==3.7.0
+)
+
+for ((i=0; i<100; i++)); do
+    # printf "now do Replica-%s \t \n" "${evalset[$i]}"
+    pip install -i $src --trusted-host $host ${evalset[$i]}
+    # CUDA_VISIBLE_DEVICES=3 python -W ignore run.py configs/Replica/${evalset[$i]}.yaml >log/Replica-${evalset[$i]}.log 
+done

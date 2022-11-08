@@ -1,0 +1,39 @@
+dataset: 'tumrgbd'
+grid_len: #对于outdoor该如何设
+  coarse: 2 
+  middle: 0.16
+  fine: 0.08
+  color: 0.08
+  bound_divisible: 0.32
+tracking:
+  vis_freq: 50
+  vis_inside_freq: 25
+  ignore_edge_W: 20
+  ignore_edge_H: 20
+  seperate_LR: True #? 分开优化旋转 平移 好像
+  const_speed_assumption: True
+  gt_camera: False #?
+  lr: 0.01     
+  pixels: 5000
+  iters: 200
+mapping:
+  every_frame: 1 #? mapping的频率
+  vis_freq: 50
+  vis_inside_freq: 25
+  mesh_freq: 50
+  ckpt_freq: 500
+  keyframe_every: 50
+  mapping_window_size: 10
+  pixels: 5000 #被用来优化的图像上的像素数吧
+  iters_first: 1500
+  iters: 60
+
+cam:  #NOTE: intrinsic is different per scene in TUM
+  H: 480 
+  W: 640 
+  fx: 517.3
+  fy: 516.5
+  cx: 318.6
+  cy: 255.3
+  png_depth_scale: 5000.0 #设置
+  crop_edge: 0

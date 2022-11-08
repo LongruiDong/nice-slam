@@ -1,0 +1,12 @@
+inherit_from: configs/ScanNet/scannet_imap.yaml
+tracking:
+  gt_camera: True #? True False
+mapping:
+  bound: [[-2.0,11.0],[-2.0,11.5],[-2.0,5.5]]
+  marching_cubes_bound: [[-2.0,11.0],[-2.0,11.5],[-2.0,5.5]]
+  BA: False # True #mapping是否一同优化位姿 False
+  no_vis_on_first_frame: False # True
+data:
+  input_folder: Datasets/scannet/scans/scene0000_00
+  output: output_imap/scannet/scans/scene0000_00gt-nodloss
+

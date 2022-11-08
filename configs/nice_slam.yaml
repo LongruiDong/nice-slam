@@ -1,0 +1,143 @@
+coarse: True #是否优化coarse level geometry 地图
+sync_method: strict
+scale: 1
+verbose: True
+occupancy: True
+low_gpu_mem: True
+rgbonly: False # 增加选项 是否为单目模式 即无depth loss
+guidesample: False # 增加选项 测试深度引导对在线的作用
+grid_len:
+  coarse: 2 
+  middle: 0.32 
+  fine: 0.16
+  color: 0.16
+  bound_divisible: 0.32
+pretrained_decoders:
+  coarse: pretrained/coarse.pt
+  middle_fine: pretrained/middle_fine.pt # one ckpt contain both middle and fine
+meshing: #这些参数是否根据场景scale来调整
+  level_set: 0
+  resolution: 256 # change to 512 for higher resolution geometry
+  eval_rec: False
+  clean_mesh: True
+  depth_test: False
+  mesh_coarse_level: False # ?
+  clean_mesh_bound_scale: 1.02
+  get_largest_components: False
+  color_mesh_extraction_method: direct_point_query
+  remove_small_geometry_threshold: 0.2
+tracking:
+  ignore_edge_W: 20
+  ignore_edge_H: 20
+  use_color_in_tracking: True
+  device: "cuda:0"
+  handle_dynamic: True
+  vis_freq: 50
+  vis_inside_freq: 25
+  w_color_loss: 0.5
+  seperate_LR: False
+  const_speed_assumption: True
+  no_vis_on_first_frame: True
+  gt_camera: False
+  lr: 0.001
+  pixels: 200
+  iters: 10
+mapping:
+  device: "cuda:0"
+  color_refine: True
+  middle_iter_ratio: 0.4
+  fine_iter_ratio: 0.6
+  every_frame: 5 # 每隔x帧进行mapping
+  BA: True
+  BA_cam_lr: 0.001
+  fix_fine: True
+  fix_color: False
+  no_vis_on_first_frame: True
+  no_mesh_on_first_frame: True
+  no_log_on_first_frame: True
+  vis_freq: 50 # 每# 帧 打印并可视化 mapping的中间结果
+  vis_inside_freq: 25 # 某次mapping 每#次迭代看下log和中间结果
+  mesh_freq: 50
+  ckpt_freq: 500
+  keyframe_every: 50 # 成为kf的间隔
+  mapping_window_size: 5
+  w_color_loss: 0.2
+  frustum_feature_selection: True # 不同于imap
+  keyframe_selection_method: 'overlap' # 不同于imap 对grid 局部更新
+  save_selected_keyframes_info: False
+  lr_first_factor: 5 #
+  lr_factor: 1 #初始化之后 因子1 即不再扩大
+  pixels: 1000 # 窗口内若干关键帧使用的总像素(ray)数 实际中每个kf中ray数目更少 1000/5=200
+  iters_first: 1500
+  iters: 60
+  stage:
+    coarse:
+      decoders_lr: 0.0
+      coarse_lr: 0.001
+      middle_lr: 0.0
+      fine_lr: 0.0
+      color_lr: 0.0
+    middle:
+      decoders_lr: 0.0
+      coarse_lr: 0.0
+      middle_lr: 0.1
+      fine_lr: 0.0
+      color_lr: 0.0
+    fine:
+      decoders_lr: 0.0
+      coarse_lr: 0.0
+      middle_lr: 0.005
+      fine_lr: 0.005
+      color_lr: 0.0
+    color:
+      decoders_lr: 0.005 #color 的decoder
+      coarse_lr: 0.0
+      middle_lr: 0.005 #最后stage优化时 要对 middle fine 也要优化
+      fine_lr: 0.005
+      color_lr: 0.005
+  # # regnerf copy from internal/configs.py, configs/llff3.gin
+  # n_random_poses: 100 # (How many random poses to use) sparse view之外 随机生成的view的数量
+  # patch_size: 8 # Patch size for random pose losses 默认8*8的块
+  # batch_size_random: 512 # The number of rays/pixels in each batch. 4096|  对于生成的视角 单独控制bs
+  # batching_random: 'all_images' # Batch composiiton for random views.
+  # load_random_rays: True # Whether to load random rays. 这些视角开作为正则约束
+  # anneal_nearfar: False # Whether to anneal near/far planes. 暂时不开
+  # anneal_nearfar_steps: 512 # Steps for near/far annealing.
+  # anneal_nearfar_perc: 0.0001 # Percentage for near/far annealing.
+  # anneal_mid_perc: 1.0 # Perc for near/far mid point.
+
+  # depth_tvnorm_loss_mult: 0.1 # Loss weight of depth tv norm.
+  # depth_tvnorm_selector: 'distance_mean_save' # Selector for tv depth.
+  # depth_tvnorm_type: 'l2'  # Type of depth tv norm loss.
+  # depth_tvnorm_mask_weight: 1.0 # Weight for tvnorm mask (0.0 = disabled)
+  # coarse_loss_mult: 0.1  # How much to downweight the coarse loss(es). 是否能直接对应于 nice-slaM coarse 阶段 try
+  # random_scales: 1 # Scales for random patch sampling (default is 1). _generate_random_rays()
+  # random_scales_init: 0  # Init scale for random patch sampling.
+  # depth_tvnorm_decay: True # Whether to decay tvnorm.
+  # depth_tvnorm_maxstep: 2048 # Max step for depth tv norm decay. regnerf 里step是总迭代次数 我这里decay策略 得改大一些 512 | 2048 
+  # depth_tvnorm_loss_mult_start: 400.0 # Start loss weight for tv depth.
+  # depth_tvnorm_loss_mult_end: 0.1 # Start loss weight for tv depth. 
+cam:
+  H: 680
+  W: 1200
+  fx: 600.0
+  fy: 600.0
+  cx: 599.5
+  cy: 339.5
+  png_depth_scale: 6553.5 #for depth image in png format
+  crop_edge: 0
+  depth_trunc: -1 # add for limit bound discard larger depth
+  sky_depth: -1
+rendering:
+  N_samples: 32 #N_strat
+  N_surface: 16 #在深度周围
+  N_importance: 0 #为啥是0 nerf里是有这一步 hirecial 采样吧
+  lindisp: False
+  perturb: 0.0
+data:
+  dim: 3
+  wnoise: False #使用噪声深度为输入
+model:
+  c_dim: 32
+  coarse_bound_enlarge: 2
+  pos_embedding_method: fourier

@@ -1,0 +1,12 @@
+inherit_from: configs/Replica/replica_imap.yaml
+tracking:
+  gt_camera: True #? True False
+mapping:
+  bound: [[-3.7,7.8],[-4.8,6.7],[-3.7,4.1]]
+  marching_cubes_bound: [[-3.7,7.8],[-4.8,6.7],[-3.7,4.1]]
+  BA: False # True #mapping是否一同优化位姿 False
+data:
+  input_folder: Datasets/Replica/office4
+  output: /mnt/lustre/donglongrui/nice-slam/output_imap_bl/Replica/office4gtp-rgb
+# cam:
+  # crop_size: [340,600] # 使用一半大小的图片
