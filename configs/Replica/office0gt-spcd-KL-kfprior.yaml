@@ -33,6 +33,7 @@ mapping:
   keyframe_selection_method: 'prior' # 'overlap'当wo gt depth就不能用 prior 即使用来自orb的2d-3d对应关系来寻找共视kf 
   # depth_lambda:
   use_sparse_loss: True # 稀疏点 单独构建 depth color loss
+  use_sparse_color: True # 上面就特指sparse depth 这里kpt上的 color 就在吧
   w_color_loss: 1.
   w_depth_loss: 0.3 # 跟depth loss 加权
 rendering:
