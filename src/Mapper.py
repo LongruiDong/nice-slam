@@ -89,6 +89,7 @@ class Mapper(object):
         self.color_loss_mask = cfg['mapping']['color_loss_mask'] # color loss 是否用depth>0 mask
         self.use_regulation = cfg['mapping']['use_regulation'] # 是否增加对于前景的nice sigma 的正则化
         self.use_sparse_loss = cfg['mapping']['use_sparse_loss'] # 是否增加使用稀疏点 depth color loss
+        self.use_sparse_color = cfg['mapping']['use_sparse_color'] # 上面就特指sparse depth 这里kpt上的 color 就在吧
         if self.save_selected_keyframes_info:
             self.selected_keyframes = {}
 
@@ -569,7 +570,7 @@ class Mapper(object):
             batch_gt_depth_list = []
             batch_gt_color_list = []
             
-            if self.use_sparse_loss:
+            if self.use_sparse_loss or self.use_sparse_color: # 两者分别对应 kpt depth 和 color
                 # 对于有效稀疏关键点 并行地进行提取射线和渲染
                 prior_rays_d_list = []
                 prior_rays_o_list = []
@@ -606,7 +607,7 @@ class Mapper(object):
                     else:
                         c2w = cur_c2w
 
-                if self.use_sparse_loss:
+                if self.use_sparse_loss or self.use_sparse_color:
                     # 取出当前帧现在位姿后 用单独函数来提取出 对应的射线
                     prior_rays_o, prior_rays_d, prior_depth, prior_color, prior_weight, kpt_i, kpt_j = get_rays_by_weight(
                         H, W, fx, fy, cx, cy, c2w, gt_depth, gt_color, kpt_weight, device
@@ -618,14 +619,14 @@ class Mapper(object):
                 if frame == -1: #记录当前帧 本次循环的采样点 #  idx -1 就是指当前帧
                     self.slecti = sti
                     self.slectj = stj
-                    if self.use_sparse_loss and (not torch.isnan(cur_gt_depth).all().item()):
+                    if (self.use_sparse_loss or self.use_sparse_color) and (not torch.isnan(cur_gt_depth).all().item()):
                         self.selcti = kpt_i
                         self.selectj = kpt_j
                 batch_rays_o_list.append(batch_rays_o.float())
                 batch_rays_d_list.append(batch_rays_d.float())
                 batch_gt_depth_list.append(batch_gt_depth.float())
                 batch_gt_color_list.append(batch_gt_color.float())
-                if self.use_sparse_loss:
+                if self.use_sparse_loss or self.use_sparse_color:
                     prior_rays_o_list.append(prior_rays_o.float())
                     prior_rays_d_list.append(prior_rays_d.float())
                     prior_depth_list.append(prior_depth.float())
@@ -638,7 +639,7 @@ class Mapper(object):
             batch_gt_depth = torch.cat(batch_gt_depth_list) # 6000 类似于batchsize batch_gt_depth 里面可能有nan
             batch_gt_color = torch.cat(batch_gt_color_list) # 6000,3
             
-            if self.use_sparse_loss:
+            if self.use_sparse_loss or self.use_sparse_color:
                 prior_rays_o = torch.cat(prior_rays_o_list) # (m)
                 prior_rays_d = torch.cat(prior_rays_d_list)
                 prior_depth = torch.cat(prior_depth_list)
@@ -663,7 +664,7 @@ class Mapper(object):
                 batch_gt_depth = batch_gt_depth[inside_mask]
                 batch_gt_color = batch_gt_color[inside_mask]
                 
-                if self.use_sparse_loss:
+                if self.use_sparse_loss or self.use_sparse_color:
                     with torch.no_grad():
                         det_rays_o = prior_rays_o.clone().detach().unsqueeze(-1)  # (N, 3, 1)
                         det_rays_d = prior_rays_d.clone().detach().unsqueeze(-1)  # (N, 3, 1)
@@ -689,19 +690,27 @@ class Mapper(object):
             else:
                 validflag = True
             sigma_loss = None
-            if self.less_sample_space: # 在会更小范围内 对surface多重采样
+            if self.less_sample_space: # 在会更小范围内 对surface多重采样 这里 lss 应该和kl loss 独立才行 方便配置控制
                 ret = self.renderer.render_batch_ray_tri(c, self.decoders, batch_rays_d,
                                                     batch_rays_o, device, self.stage,
-                                                    gt_depth=None if ( self.coarse_mapper or (not self.guide_sample) or (not validflag) ) else batch_gt_depth) # 突然意识到之前这里 还是会根据gt depth 采样ray上表面附近的
+                                                    gt_depth=None if ( self.coarse_mapper or (not self.guide_sample) or (not validflag) ) else batch_gt_depth,
+                                                    confidence=None) # 突然意识到之前这里 还是会根据gt depth 采样ray上表面附近的
                 
             else: # 原始情况
                 ret = self.renderer.render_batch_ray(c, self.decoders, batch_rays_d,
                                                     batch_rays_o, device, self.stage, #)
-                                                    gt_depth=None if ( self.coarse_mapper or (not self.guide_sample) or (not validflag) ) else batch_gt_depth) # 突然意识到之前这里 还是会根据gt depth 采样ray上表面附近的
+                                                    gt_depth=None if ( self.coarse_mapper or (not self.guide_sample) or (not validflag) ) else batch_gt_depth,
+                                                    confidence=None) # 这里是因为都是 coarse prior 暂时用的估计的 权重做方差
             depth, uncertainty, color, weights, sigma_loss, _ = ret # 这里的输出不同 但sigma_loss可能仍是None
-            if self.use_sparse_loss:
-                # 对于稀疏点的 数据 都用多重采样 也要用到weight
-                prior_ret = self.renderer.render_batch_ray_tri(c, self.decoders, prior_rays_d,
+            if self.use_sparse_loss or self.use_sparse_color:
+                # 对于稀疏点的 数据 都用多重采样 也要用到weight 也改为选择两种方式  这样 稀疏点 kl loss 采样策略都独立了！
+                if self.less_sample_space:
+                    prior_ret = self.renderer.render_batch_ray_tri(c, self.decoders, prior_rays_d,
+                                                            prior_rays_o, device, self.stage,
+                                                            gt_depth=prior_depth, # 对于有效稀疏点 coarse深度和置信度都有
+                                                            confidence=prior_weight) #
+                else:
+                    prior_ret = self.renderer.render_batch_ray(c, self.decoders, prior_rays_d,
                                                         prior_rays_o, device, self.stage,
                                                         gt_depth=prior_depth, # 对于有效稀疏点 coarse深度和置信度都有
                                                         confidence=prior_weight) #
@@ -722,13 +731,14 @@ class Mapper(object):
                 depth_loss = torch.abs(
                     batch_gt_depth[depth_mask]-depth[depth_mask]).sum()
                 loss = self.w_depth_loss * depth_loss
-            if self.use_sparse_loss: # 对稀疏点loss 加权 使用归一化后的置信度
+            if self.use_sparse_loss or self.use_sparse_color: # 对稀疏点loss 加权 使用归一化后的置信度 这里只看一个flag
                 prior_mask = (prior_depth>0)
                 prior_weight = (prior_weight / prior_weight.max() + 1e-10) # (0, 1)
                 sp_factor = float(depth.shape[0]) / depth_sp.shape[0] # 数量上平衡 一般点 和 系数深度点的数量上的比值
-                sp_depth_loss = (torch.abs( #
-                    prior_depth-depth_sp) * prior_weight)[prior_mask].sum()
-                loss += sp_factor* self.w_depth_loss * sp_depth_loss
+                if self.use_sparse_loss:
+                    sp_depth_loss = (torch.abs( #
+                        prior_depth-depth_sp) * prior_weight)[prior_mask].sum()
+                    loss += sp_factor* self.w_depth_loss * sp_depth_loss
             if ((not self.nice) or (self.stage == 'color')): # 才发现 其他stage color是0 所以之前 rgb only 时应该 都改为color stage,反正其他stage color loss是错的
                 if self.color_loss_mask: # 是否使用depth 的mask
                     color_loss = torch.abs(batch_gt_color[depth_mask] - color[depth_mask]).sum()
@@ -739,7 +749,7 @@ class Mapper(object):
                 #     self.w_color_loss = 1.
                 #     weighted_color_loss = color_loss
                 loss += weighted_color_loss
-                if self.use_sparse_loss:
+                if self.use_sparse_color: # self.use_sparse_loss 稀疏点 颜色始终有
                     sp_color_loss = torch.abs(
                         prior_color[prior_mask] - color_sp[prior_mask]).sum()
                     loss += sp_factor* self.w_color_loss * sp_color_loss
@@ -752,7 +762,7 @@ class Mapper(object):
                     sigma_sum = torch.sum(sigma_loss, dim=1) # 避免计入那些 较大的值一般是 深度+ 标准差接近边界
                     kl_loss += sigma_sum[sigma_sum<500.].mean() # (B,) -> 平均到一个值了
                     # loss += self.sigma_lambda*kl_loss # 权重求和
-                # if self.use_sparse_loss: # 这些位置已经用稀疏点depth直接监督过了
+                # if self.use_sparse_loss or self.use_sparse_color: # 这些位置已经用稀疏点depth直接监督过了
                 #     sigma_sum_sp= torch.sum(sigma_loss_sp, dim=1)
                 #     kl_loss_sp = sigma_sum_sp[sigma_sum_sp<500.].mean()
                 #     kl_loss += kl_loss_sp
