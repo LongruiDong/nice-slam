@@ -489,7 +489,7 @@ class Replica(BaseDataset):
         3d点原本是认为在 首帧为世界系的坐标系下的 需要先转换到新的世界系下 
         然后 再由于是nerf-pytorch坐标系 y,z要取反
         Args:
-            path (str): orb-slam 输出的稀疏点云txt /home/dlr/Project1/ORB_SLAM2_Enhanced/result/replica/office0/mappts.txt
+            path (str): orb-slam 输出的稀疏点云txt/mnt/lustre/donglongrui/replica/office0/mappts.txt
         """
         
         # 载入 mapptsfile 以字典方式存吧  每行长度不一

@@ -39,7 +39,7 @@ rendering:
   emperical_range: 0.05 # 增加参数控制 surface 的range 比例 0.05| 0.1 0.15
 data:
   input_folder: Datasets/Replica/office0
-  output: output/Replica_prior/office0gt-nodloss1-resize2-onlyorbkf # -woguide -it1k  ertune office0gt-nodloss1-woNsurf-Ni32-p1k-f4k-it4k-init
+  output: /mnt/lustre/donglongrui/ddl_output/Replica_prior/office0gt-nodloss1-resize2-onlyorbkf # -woguide -it1k  ertune office0gt-nodloss1-woNsurf-Ni32-p1k-f4k-it4k-init
   prior_folder: /home/dlr/Project1/ORB_SLAM2_Enhanced/result
 cam:
   depth_trunc: 8 # add for limit bound discard larger depth -1| 对于prior depth 得用

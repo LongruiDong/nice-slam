@@ -47,8 +47,8 @@ rendering:
   sigma_lambda: 0.1 # 权重因子 used for KL loss
 data:
   input_folder: Datasets/Replica/room0
-  # output: output/Replica_prior/office0gt-nogtd-debug-kfglobal-map5hz # -woguide -it1k -resize2 ertune office0gt-nodloss1-woNsurf-Ni32-p1k-f4k-it4k-init
-  prior_folder: /home/dlr/Project1/ORB_SLAM2_Enhanced/result/replica/room0
+  # output: /mnt/lustre/donglongrui/ddl_output/Replica_prior/office0gt-nogtd-debug-kfglobal-map5hz # -woguide -it1k -resize2 ertune office0gt-nodloss1-woNsurf-Ni32-p1k-f4k-it4k-init
+  prior_folder: /mnt/lustre/donglongrui/replica/room0
 cam:
   # depth_trunc: 8 # add for limit bound discard larger depth -1| 对于prior depth 得用
   # 增加根据dnet预测的深度的不确定性来prune pred depth

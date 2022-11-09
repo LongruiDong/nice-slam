@@ -48,8 +48,12 @@ def get_align_transformation(rec_meshfile, gt_meshfile):
     """
     o3d_rec_mesh = o3d.io.read_triangle_mesh(rec_meshfile)
     o3d_gt_mesh = o3d.io.read_triangle_mesh(gt_meshfile)
-    o3d_rec_pc = o3d.geometry.PointCloud(points=o3d_rec_mesh.vertices)
-    o3d_gt_pc = o3d.geometry.PointCloud(points=o3d_gt_mesh.vertices)
+    o3d_rec_pc = o3d.geometry.PointCloud()
+    o3d_gt_pc = o3d.geometry.PointCloud()
+    o3d_rec_pc.points = o3d_rec_mesh.vertices
+    o3d_gt_pc.points = o3d_gt_mesh.vertices # open3d-python 版本问题 0.7.0
+    # o3d_rec_pc = o3d.geometry.PointCloud(points=o3d_rec_mesh.vertices)
+    # o3d_gt_pc = o3d.geometry.PointCloud(points=o3d_gt_mesh.vertices)
     trans_init = np.eye(4)
     threshold = 0.1
     reg_p2p = o3d.pipelines.registration.registration_icp(

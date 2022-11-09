@@ -33,8 +33,9 @@ mapping:
   keyframe_selection_method: 'global' # 'overlap'当wo gt depth就不能用 prior 即使用来自orb的2d-3d对应关系来寻找共视kf 
   # depth_lambda:
   use_sparse_loss: True # 稀疏点 单独构建 depth color loss
+  use_sparse_color: True # 上面就特指sparse depth 这里kpt上的 color 就在吧
   w_color_loss: 1.
-  w_depth_loss: 0.3 # 跟depth loss 加权
+  w_depth_loss: 0.5 # 跟depth loss 加权 0.3 | 0.5
 rendering:
   N_samples: 32 #N_strat
   N_surface: 32 #在深度周围 16| 0 
@@ -47,11 +48,11 @@ rendering:
   use_KL_loss: True # 是否使用ds-nerf的sigma loss True
   # https://github.com/dunbar12138/DSNeRF/blob/d9deb70ac1464348aebbe5e32fc98aeca1920f70/run_nerf.py#L527
   raw_noise_std: 1.0 # 'std dev of noise added to regularize sigma_a output, 1e0 recommended' 只是对于nerf nice-slam还用不上
-  sigma_lambda: 0.01 # 权重因子 used for KL loss 0.1 
+  sigma_lambda: 0.05 # 权重因子 used for KL loss 0.1 0.01 0.05 
 data:
   input_folder: Datasets/Replica/room1
-  output: output/Replica_prior/room1gt-sp-5hz-KLoss-stagecolor # -resize2 -debug-KLloss # onlyvis -woguide -it1k  ertune office0gt-nodloss1-woNsurf-Ni32-p1k-f4k-it4k-init
-  prior_folder: /home/dlr/Project1/ORB_SLAM2_Enhanced/result/replica/room1
+  output: /mnt/lustre/donglongrui/ddl_output/Replica_prior/room1gt-sp-5hz-KLoss-stagecolor-tunewt # -resize2 -debug-KLloss # onlyvis -woguide -it1k  ertune office0gt-nodloss1-woNsurf-Ni32-p1k-f4k-it4k-init
+  prior_folder: /mnt/lustre/donglongrui/replica/room1
 cam:
   depth_trunc: 8 # add for limit bound discard larger depth -1| 对于prior depth 得用
   # 增加根据dnet预测的深度的不确定性来prune pred depth

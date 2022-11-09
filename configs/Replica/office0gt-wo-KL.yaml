@@ -23,8 +23,8 @@ mapping:
   pixels: 1000 # 窗口内若干关键帧使用的总像素(ray)数 实际中每个kf中ray数目更少 1000/5=200|  4096 1000*5=5000 2048*5=10240 4096*5=20480
   vis_freq: 1
   vis_inside_freq: 30 # 30| 200 60
-  middle_iter_ratio: 0.4 # 0.4 # rgbonly时 只有color stage -1
-  fine_iter_ratio: 0.6 # 0.6 -1
+  middle_iter_ratio: -1 # 0.4 # rgbonly时 只有color stage -1
+  fine_iter_ratio: -1 # 0.6 -1
   every_frame: 5 # 5| 25 和 离线的80kf来对比
   keyframe_every: 50
   mesh_freq: 500
@@ -35,7 +35,7 @@ mapping:
   use_sparse_loss: True # 稀疏点 单独构建 depth color loss
   use_sparse_color: True # 上面就特指sparse depth 这里kpt上的 color 就在吧
   w_color_loss: 1.
-  w_depth_loss: 0.5 # 跟depth loss 加权
+  w_depth_loss: 0.3 # 跟depth loss 加权
 rendering:
   N_samples: 32 #N_strat
   N_surface: 32 #在深度周围 16| 0 
@@ -44,17 +44,17 @@ rendering:
   perturb: 0.0 
   less_sample_space: True # 是否用粗糙深度来在surface附近区间内多重采样
   up_sample_steps: 2 # 在表面附件多重采样的次数 暂时每次16个
-  emperical_range: 0.10 # 增加参数控制 surface 的range 比例 0.05| 0.1 0.15
+  emperical_range: 0.15 # 增加参数控制 surface 的range 比例 0.05| 0.1 0.15
   use_KL_loss: False # 是否使用ds-nerf的sigma loss True
   # https://github.com/dunbar12138/DSNeRF/blob/d9deb70ac1464348aebbe5e32fc98aeca1920f70/run_nerf.py#L527
   raw_noise_std: 1.0 # 'std dev of noise added to regularize sigma_a output, 1e0 recommended' 只是对于nerf nice-slam还用不上
-  sigma_lambda: 0.2 # 权重因子 used for KL loss 0.1 
+  sigma_lambda: 0.01 # 权重因子 used for KL loss 0.1 
 data:
   input_folder: Datasets/Replica/office0
-  output: /mnt/lustre/donglongrui/ddl_output/Replica_prior/office0gt-sp-resize2-5hz-cdguide-lss #-debug-KLloss # onlyvis -woguide -it1k  ertune office0gt-nodloss1-woNsurf-Ni32-p1k-f4k-it4k-init
+  output: /mnt/lustre/donglongrui/ddl_output/Replica_ablate/office0gt-wo-KL # -resize2 -debug-KLloss # onlyvis -woguide -it1k  ertune office0gt-nodloss1-woNsurf-Ni32-p1k-f4k-it4k-init
   prior_folder: /mnt/lustre/donglongrui/replica/office0
 cam:
   depth_trunc: 8 # add for limit bound discard larger depth -1| 对于prior depth 得用
   # 增加根据dnet预测的深度的不确定性来prune pred depth
   dstdv_cut_max: -1  # 对于office 实际最大值在0.35左右 0.25 0.2 0.15
-  crop_size: [340,600] # 为了和离线公平对比 使用一半大小的图片
+  # crop_size: [340,600] # 为了和离线公平对比 使用一半大小的图片
