@@ -64,16 +64,19 @@ GT_MESH=Datasets/Replica/cull_replica_mesh/office0.ply
 # # output/Replica_prior/office0gt-nodloss1-resize2-woguide-it1k
 # python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/final_mesh_eval_rec.ply --gt_mesh $GT_MESH -2d -3d
 
-# OUTPUT_FOLDER=output/Replica_prior/office0gt-sp-5hz-KLoss-stagecolor
-# # output/Replica_prior/office0gt-sp-resize2-5hz-KLossfilter-stagecolor
-# # output/Replica_prior/office0gt-sp-resize2-5hz-KLoss-stagecolor
-# # output/Replica_prior/office0gt-sp-resize2-5hz-KLoss
-# # output/Replica_prior/office0gt-klfactor
-# # output/Replica_prior/office0gt-kl
-# # output/Replica/office0gt-nodloss-pix20480
+# OUTPUT_FOLDER=ddl_output/Replica_prior/office0gt-sp-5hz-KLoss-stagecolor
+# # output/Replica_prior/office0gt-sp-resize2-5hz-KLoss-kfprior
+# # output/Replica_prior/office0gt-sp-5hz-KLoss-stagecolor
+# # # output/Replica_prior/office0gt-sp-resize2-5hz-KLossfilter-stagecolor
+# # # output/Replica_prior/office0gt-sp-resize2-5hz-KLoss-stagecolor
+# # # output/Replica_prior/office0gt-sp-resize2-5hz-KLoss
+# # # output/Replica_prior/office0gt-klfactor
+# # # output/Replica_prior/office0gt-kl
+# # # output/Replica/office0gt-nodloss-pix20480
 # python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/final_mesh_eval_rec.ply --gt_mesh $GT_MESH -2d -3d
 
-# OUTPUT_FOLDER=output/Replica_prior/office0gt-spkl-resize2-5hz-cdguide-lss
+# OUTPUT_FOLDER=output/Replica_prior/office0gt-sp-resize2-5hz-KLossfilter-stagecolor
+# output/Replica_prior/office0gt-spkl-resize2-5hz-cdguide-lss
 # # output/Replica_prior/office0gt-sp-resize2-5hz-cdguide
 # # output/Replica_prior/office0gt-sp-resize2-5hz
 # python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/final_mesh_eval_rec.ply --gt_mesh $GT_MESH -2d -3d
@@ -82,7 +85,8 @@ GT_MESH=Datasets/Replica/cull_replica_mesh/office0.ply
 # # output/Replica/office0gt-nodloss-pix4096-f1500-it1k
 # python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/final_mesh_eval_rec.ply --gt_mesh $GT_MESH -2d -3d
 
-OUTPUT_FOLDER=output/Replica_prior/office0gt-resize2-5hz-lss
+OUTPUT_FOLDER=ddl_output/Replica_prior/office0gt-5hz-lss
+# output/Replica_prior/office0gt-resize2-5hz-lss
 # output/Replica/office0gt-nodloss-pix1000-f4k-it4k
 python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/final_mesh_eval_rec.ply --gt_mesh $GT_MESH -2d -3d
 
@@ -105,6 +109,10 @@ python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/final_mesh_eval_re
 # GT_MESH=cull_replica_mesh/room2.ply
 # python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/final_mesh_eval_rec.ply --gt_mesh $GT_MESH -2d -3d
 # python visualizer.py configs/Replica/room2.yaml --output $OUTPUT_FOLDER --save_rendering --vis_input_frame
+
+# OUTPUT_FOLDER=ddl_output/Replica_prior/room1gt-sp-5hz-KLoss-stagecolor
+# GT_MESH=Datasets/Replica/cull_replica_mesh/room1.ply
+# python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/final_mesh_eval_rec.ply --gt_mesh $GT_MESH -2d -3d
 
 # OUTPUT_FOLDER=output/Replica/office0
 # GT_MESH=cull_replica_mesh/office0.ply
