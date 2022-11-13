@@ -1,19 +1,19 @@
 # for use coarse depth prior debug 测试使用三角剖分的预测的深度作为初始来在线mapping
 inherit_from: configs/Replica/replica.yaml
 scale: 1 # 原始scale参数 涉及给定的bound, 改变读入的depth
-prior_scale: 2.43 # 用于prior 的pose 和 depth map 的尺度和 Gt 的对齐因子 这里default 1 目前结果在外部算过 *3
+prior_scale: 2.26 # 用于prior 的pose 和 depth map 的尺度和 Gt 的对齐因子 这里default 1 目前结果在外部算过 *3
 use_prior: True # 是否载入作为先验的 pose 和depth 这里暂时depth 作为gt_depth来用
 rgbonly: True # 增加选项 是否为单目模式 即无depth loss
-guidesample: False # 增加选项 测试深度引导对在线的作用
+guidesample: True # 增加选项 测试深度引导对在线的作用
 tracking:
-  gt_camera: True #? True False
-  prior_camera: False # 增加选项track就用先验位姿做初值
+  gt_camera: False #? True False
+  prior_camera: True # 增加选项track就用先验位姿做初值
   vis_freq: 1
 mapping:
-  bound: [[-5.5,5.9],[-6.7,5.4],[-4.7,5.3]]
-  marching_cubes_bound: [[-5.5,5.9],[-6.7,5.4],[-4.7,5.3]]
+  bound: [[-2.9,8.9],[-3.2,5.5],[-3.5,3.3]]
+  marching_cubes_bound: [[-2.9,8.9],[-3.2,5.5],[-3.5,3.3]]
 
-  BA: False # True #mapping是否一同优化位姿 False
+  BA: True # True #mapping是否一同优化位姿 False
   iters_first: 1500 # 1500| 2000 4000
   iters: 60 # 测试增大迭代次数 60| 100 120 600 1000 4000
   no_vis_on_first_frame: False # True
@@ -35,26 +35,26 @@ mapping:
   use_sparse_loss: True # 稀疏点 单独构建 depth color loss
   use_sparse_color: True # 上面就特指sparse depth 这里kpt上的 color 就在吧
   w_color_loss: 1.
-  w_depth_loss: 0.3 # 跟depth loss 加权
+  w_depth_loss: 0.5 # 跟depth loss 加权 0.3 | 0.5
 rendering:
   N_samples: 32 #N_strat
-  N_surface: 0 #在深度周围 16| 0  32
+  N_surface: 32 #在深度周围 16| 0 
   N_importance: 32 #为啥是0 nerf里是有这一步 hirecial 采样吧 12(imap*) 16(总数和原始保持一致) 32
   lindisp: False
   perturb: 0.0 
-  less_sample_space: False # 是否用粗糙深度来在surface附近区间内多重采样
+  less_sample_space: True # 是否用粗糙深度来在surface附近区间内多重采样
   up_sample_steps: 2 # 在表面附件多重采样的次数 暂时每次16个
   emperical_range: 0.15 # 增加参数控制 surface 的range 比例 0.05| 0.1 0.15
   use_KL_loss: True # 是否使用ds-nerf的sigma loss True
   # https://github.com/dunbar12138/DSNeRF/blob/d9deb70ac1464348aebbe5e32fc98aeca1920f70/run_nerf.py#L527
   raw_noise_std: 1.0 # 'std dev of noise added to regularize sigma_a output, 1e0 recommended' 只是对于nerf nice-slam还用不上
-  sigma_lambda: 0.01 # 权重因子 used for KL loss 0.1 
+  sigma_lambda: 0.05 # 权重因子 used for KL loss 0.1 0.01 0.05
 data:
-  input_folder: Datasets/Replica/office0
-  output: /mnt/lustre/donglongrui/ddl_output/Replica_ablate/office0gt-wo-lssguide-resize2 # -resize2 -debug-KLloss # onlyvis -woguide -it1k  ertune office0gt-nodloss1-woNsurf-Ni32-p1k-f4k-it4k-init
-  prior_folder: /mnt/lustre/donglongrui/replica/office0
+  input_folder: Datasets/Replica/room0
+  output: /mnt/lustre/donglongrui/ddl_output/Replica_prior/room0orb-sp-5hz-KLoss-stagecolor-tunewt # -resize2 -debug-KLloss # onlyvis -woguide -it1k  ertune office0gt-nodloss1-woNsurf-Ni32-p1k-f4k-it4k-init
+  prior_folder: /mnt/lustre/donglongrui/replica/room0
 cam:
   depth_trunc: 8 # add for limit bound discard larger depth -1| 对于prior depth 得用
   # 增加根据dnet预测的深度的不确定性来prune pred depth
   dstdv_cut_max: -1  # 对于office 实际最大值在0.35左右 0.25 0.2 0.15
-  crop_size: [340,600] # 为了和离线公平对比 使用一半大小的图片
+  # crop_size: [340,600] # 为了和离线公平对比 使用一半大小的图片

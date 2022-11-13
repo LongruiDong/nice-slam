@@ -43,46 +43,46 @@ GT_MESH=Datasets/Replica/cull_replica_mesh/office0.ply
 # # # output/Replica/office0gt-nodloss1-Ns32-ef25-guidesamp # /home/dlr/Project2/nice-slam/output/Replica/office0gt-ndloss1-woNsurf-Ni32-p1k-f4k-it4k-mysamp
 # python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/final_mesh_eval_rec.ply --gt_mesh $GT_MESH -2d -3d
 
-# OUTPUT_FOLDER=output/Replica_prior/office0gt-nogtd-resize2-debug-KLloss
-# # output/Replica_prior/office0gt-nogtd-resize2-debug-kfglobal #output/Replica_prior/office0gt-nogtd-resize2-debug
-# # output/Replica_prior/office0gt-nodloss1-resize2-onlyorbkf
+# OUTPUT_FOLDER=/mnt/lustre/donglongrui/ddl_output/Replica_prior/office0gt-nogtd-resize2-debug-KLloss
+# # /mnt/lustre/donglongrui/ddl_output/Replica_prior/office0gt-nogtd-resize2-debug-kfglobal #/mnt/lustre/donglongrui/ddl_output/Replica_prior/office0gt-nogtd-resize2-debug
+# # /mnt/lustre/donglongrui/ddl_output/Replica_prior/office0gt-nodloss1-resize2-onlyorbkf
 # # /home/dlr/Project2/nice-slam/output/Replica/office0gt-nodloss1-Ni32-ef25-resize2
-# # output/Replica_prior/office0gt-nodloss1-resize2-woguide # output/Replica_prior/office0gt-nodloss1-resize2-ertune-it1k
-# # output/Replica_prior/office0gt-nodloss1-resize2
+# # /mnt/lustre/donglongrui/ddl_output/Replica_prior/office0gt-nodloss1-resize2-woguide # /mnt/lustre/donglongrui/ddl_output/Replica_prior/office0gt-nodloss1-resize2-ertune-it1k
+# # /mnt/lustre/donglongrui/ddl_output/Replica_prior/office0gt-nodloss1-resize2
 # python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/final_mesh_eval_rec.ply --gt_mesh $GT_MESH -2d -3d
 
-# OUTPUT_FOLDER=output/Replica_prior/office0gt-nogtd-debug-resize2-kfglobal-less-regs
-# # output/Replica_prior/office0gt-nogtd-debug-kfglobal-less-map5hz
-# # output/Replica_prior/office0gt-nogtd-debug-kfglobal-less-colormask
-# # output/Replica_prior/office0gt-nogtd-resize2-debug-kfglobal-less
-# # output/Replica_prior/office0gt-nogtd-resize2-orbpose-kfglobal
-# # output/Replica_prior/office0gt-nogtd-resize2-orbpose
-# # output/Replica_prior/office0gt-nodloss1-resize2-it1k
+# OUTPUT_FOLDER=/mnt/lustre/donglongrui/ddl_output/Replica_prior/office0gt-nogtd-debug-resize2-kfglobal-less-regs
+# # /mnt/lustre/donglongrui/ddl_output/Replica_prior/office0gt-nogtd-debug-kfglobal-less-map5hz
+# # /mnt/lustre/donglongrui/ddl_output/Replica_prior/office0gt-nogtd-debug-kfglobal-less-colormask
+# # /mnt/lustre/donglongrui/ddl_output/Replica_prior/office0gt-nogtd-resize2-debug-kfglobal-less
+# # /mnt/lustre/donglongrui/ddl_output/Replica_prior/office0gt-nogtd-resize2-orbpose-kfglobal
+# # /mnt/lustre/donglongrui/ddl_output/Replica_prior/office0gt-nogtd-resize2-orbpose
+# # /mnt/lustre/donglongrui/ddl_output/Replica_prior/office0gt-nodloss1-resize2-it1k
 # python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/final_mesh_eval_rec.ply --gt_mesh $GT_MESH -2d -3d
 
-# OUTPUT_FOLDER=output/Replica_prior/office0gt-nodloss1-resize2-woguide-onlyorbkf
-# # output/Replica_prior/office0gt-nodloss1-resize2-woguide-it1k
+# OUTPUT_FOLDER=/mnt/lustre/donglongrui/ddl_output/Replica_prior/office0gt-nodloss1-resize2-woguide-onlyorbkf
+# # /mnt/lustre/donglongrui/ddl_output/Replica_prior/office0gt-nodloss1-resize2-woguide-it1k
 # python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/final_mesh_eval_rec.ply --gt_mesh $GT_MESH -2d -3d
 
-# OUTPUT_FOLDER=output/Replica_prior/office0gt-sp-5hz-KLoss-stagecolor
-# # output/Replica_prior/office0gt-sp-resize2-5hz-KLossfilter-stagecolor
-# # output/Replica_prior/office0gt-sp-resize2-5hz-KLoss-stagecolor
-# # output/Replica_prior/office0gt-sp-resize2-5hz-KLoss
-# # output/Replica_prior/office0gt-klfactor
-# # output/Replica_prior/office0gt-kl
+# OUTPUT_FOLDER=/mnt/lustre/donglongrui/ddl_output/Replica_prior/office0gt-sp-5hz-KLoss-stagecolor
+# # /mnt/lustre/donglongrui/ddl_output/Replica_prior/office0gt-sp-resize2-5hz-KLossfilter-stagecolor
+# # /mnt/lustre/donglongrui/ddl_output/Replica_prior/office0gt-sp-resize2-5hz-KLoss-stagecolor
+# # /mnt/lustre/donglongrui/ddl_output/Replica_prior/office0gt-sp-resize2-5hz-KLoss
+# # /mnt/lustre/donglongrui/ddl_output/Replica_prior/office0gt-klfactor
+# # /mnt/lustre/donglongrui/ddl_output/Replica_prior/office0gt-kl
 # # output/Replica/office0gt-nodloss-pix20480
 # python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/final_mesh_eval_rec.ply --gt_mesh $GT_MESH -2d -3d
 
-# OUTPUT_FOLDER=output/Replica_prior/office0gt-spkl-resize2-5hz-cdguide-lss
-# # output/Replica_prior/office0gt-sp-resize2-5hz-cdguide
-# # output/Replica_prior/office0gt-sp-resize2-5hz
+# OUTPUT_FOLDER=/mnt/lustre/donglongrui/ddl_output/Replica_prior/office0gt-spkl-resize2-5hz-cdguide-lss
+# # /mnt/lustre/donglongrui/ddl_output/Replica_prior/office0gt-sp-resize2-5hz-cdguide
+# # /mnt/lustre/donglongrui/ddl_output/Replica_prior/office0gt-sp-resize2-5hz
 # python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/final_mesh_eval_rec.ply --gt_mesh $GT_MESH -2d -3d
 
-# OUTPUT_FOLDER=output/Replica_prior/office0gt-sp-resize2-5hz-cdguide-lss
+# OUTPUT_FOLDER=/mnt/lustre/donglongrui/ddl_output/Replica_prior/office0gt-sp-resize2-5hz-cdguide-lss
 # # output/Replica/office0gt-nodloss-pix4096-f1500-it1k
 # python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/final_mesh_eval_rec.ply --gt_mesh $GT_MESH -2d -3d
 
-OUTPUT_FOLDER=output/Replica_prior/office0gt-resize2-5hz-lss
+OUTPUT_FOLDER=/mnt/lustre/donglongrui/ddl_output/Replica_prior/office0gt-resize2-5hz-lss
 # output/Replica/office0gt-nodloss-pix1000-f4k-it4k
 python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/final_mesh_eval_rec.ply --gt_mesh $GT_MESH -2d -3d
 

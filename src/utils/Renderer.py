@@ -130,7 +130,9 @@ class Renderer(object):
         N_importance = self.N_importance
 
         N_rays = rays_o.shape[0]
-
+        gt_depth_bp = None
+        if gt_depth is not None:
+            gt_depth_bp = gt_depth.clone().detach() # 为了消融时 分开 引导采样 和 sigma_loss的计算 复制下 后面可正常使用
         if stage == 'coarse' or (not self.guide_sample):
             gt_depth = None
         if gt_depth is None:
@@ -236,7 +238,7 @@ class Renderer(object):
         sigma_loss = None # 只有在最后 要输出最后结果时 才设置是否使用KL loss
         depth, uncertainty, color, weights, sigma_loss = raw2outputs_nerf_color(
             raw, z_vals, rays_d, occupancy=self.occupancy, device=device,
-            coarse_depths=gt_depth, confidence=confidence if self.use_KL_loss else None) # 内部会判读是否none
+            coarse_depths=gt_depth_bp, confidence=confidence if self.use_KL_loss else None) # 内部会判读是否none
         
         # # 根据regnerf 由weights 进一步得到 rendering['acc'] 来用到 depth patch loss
         # regacc = weights.sum(axis=-1) # (batchsize)
@@ -255,7 +257,7 @@ class Renderer(object):
 
             depth, uncertainty, color, weights, sigma_loss = raw2outputs_nerf_color(
                 raw, z_vals, rays_d, occupancy=self.occupancy, device=device,
-                coarse_depths=gt_depth, confidence=confidence if self.use_KL_loss else None) # if self.use_KL_loss else None
+                coarse_depths=gt_depth_bp, confidence=confidence if self.use_KL_loss else None) # if self.use_KL_loss else None
             return depth, uncertainty, color, weights, sigma_loss, z_vals
         # 增加输出采样的深度 为了画图
         return depth, uncertainty, color, weights, sigma_loss, z_vals
@@ -286,7 +288,9 @@ class Renderer(object):
         N_importance = self.N_importance
 
         N_rays = rays_o.shape[0]
-
+        gt_depth_bp = None
+        if gt_depth is not None:
+            gt_depth_bp = gt_depth.clone().detach() # 为了消融时 分开 引导采样 和 sigma_loss的计算 复制下 后面可正常使用
         if stage == 'coarse' or (not self.guide_sample):
             gt_depth = None
         if gt_depth is None:
@@ -380,7 +384,7 @@ class Renderer(object):
         raw = raw.reshape(N_rays, N_samples+N_surface, -1)
         # 此函数里 就不使用 sigma_loss
         depth, uncertainty, color, weights, sigma_loss = raw2outputs_nerf_color(
-            raw, z_vals, rays_d, occupancy=self.occupancy, device=device, coarse_depths=gt_depth,
+            raw, z_vals, rays_d, occupancy=self.occupancy, device=device, coarse_depths=gt_depth_bp,
             confidence=confidence if self.use_KL_loss else None)
         # # 根据regnerf 由weights 进一步得到 rendering['acc'] 来用到 depth patch loss
         # regacc = weights.sum(axis=-1) # (batchsize)
@@ -398,7 +402,7 @@ class Renderer(object):
             raw = raw.reshape(N_rays, N_samples+N_importance+N_surface, -1)
 
             depth, uncertainty, color, weights, sigma_loss = raw2outputs_nerf_color(
-                raw, z_vals, rays_d, occupancy=self.occupancy, device=device, coarse_depths=gt_depth,
+                raw, z_vals, rays_d, occupancy=self.occupancy, device=device, coarse_depths=gt_depth_bp,
                 confidence=confidence if self.use_KL_loss else None)
             return depth, uncertainty, color, weights, sigma_loss, z_vals
         # 增加输出采样的深度 为了画图
