@@ -1,0 +1,24 @@
+now do Replica-office0 	 
+evaluating output/Replica_pose/office0orb/mesh/final_mesh_eval_rec.ply
+accuracy:  42.4033328864989
+completion:  37.41481469589255
+completion ratio:  9.443
+Depth L1:  94.12668943405151
+now do Replica-office1 	 
+output/Replica_pose/office1orb not wxist, skip! 
+now do Replica-office2 	 
+output/Replica_pose/office2orb not wxist, skip! 
+now do Replica-office3 	 
+output/Replica_pose/office3orb not wxist, skip! 
+now do Replica-office4 	 
+output/Replica_pose/office4orb not wxist, skip! 
+now do Replica-room0 	 
+output/Replica_pose/room0orb not wxist, skip! 
+now do Replica-room1 	 
+evaluating output/Replica_pose/room1orb/mesh/final_mesh_eval_rec.ply
+accuracy:  39.96247913187563
+completion:  61.212782337031925
+completion ratio:  8.353
+Depth L1:  92.79553294181824
+now do Replica-room2 	 
+output/Replica_pose/room2orb not wxist, skip! 

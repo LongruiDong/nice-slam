@@ -64,7 +64,7 @@ coverage.xml
 *.pot
 
 # Django stuff:
-*.log
+# *.log
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
@@ -136,7 +136,7 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-log
+log/
 output-reg
 output_imap-reg
 *.out
@@ -146,3 +146,5 @@ triangulation
 tridebug
 tridebug1
 ddl_output
+
+resize2-regu-init.log

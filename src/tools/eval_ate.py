@@ -198,7 +198,7 @@ def evaluate_ate(first_list, second_list, plot="", _args=""):
         ax = fig.add_subplot(111)
         ATE = numpy.sqrt(
             numpy.dot(trans_error, trans_error) / len(trans_error))
-        ax.set_title(f'len:{len(trans_error)} ATE RMSE:{ATE} {args.plot[:-3]}')
+        ax.set_title(f'len:{len(trans_error)} ATE RMSE:{ATE:.3f}') # {args.plot[:-3]}
         plot_traj(ax, first_stamps, first_xyz_full.transpose().A,
                   '-', "black", "ground truth")
         plot_traj(ax, second_stamps, second_xyz_full_aligned.transpose(
@@ -217,7 +217,7 @@ def evaluate_ate(first_list, second_list, plot="", _args=""):
         plt.xticks(fontsize=20)
         plt.yticks(fontsize=20)
         plt.tight_layout()
-        plt.savefig(args.plot, dpi=90)
+        plt.savefig(args.plot, dpi=200)
         plt.show()
 
     return {
@@ -303,10 +303,11 @@ if __name__ == '__main__':
                 poses_gt = torch.from_numpy(poses_gt[:, 1:])
             else:
                 poses_gt, mask = convert_poses(gt_c2w_list, N, scale) # 对于prior模式下 估计位姿中有nan都是非orb kf 用此Mask来覆盖gt
-            poses_est, _ = convert_poses(estimate_c2w_list, N, scale) # tx y z qw qx qy qz
-            poses_est = poses_est[mask]
+            poses_est, mask1 = convert_poses(estimate_c2w_list, N, scale) # tx y z qw qx qy qz
+            # poses_est = poses_est[mask]
+            poses_gt = poses_gt[mask1]
             evaluate(poses_gt, poses_est,
-                     plot=f'{output}/eval_ate_plot.png')
+                     plot=f'{output}/eval_ate_plot.pdf') # 改为pdf
             # 以tum格式保存 gt 和 est 轨迹
             poses_est1 = poses_est.numpy()
             poses_gt1 = poses_gt.numpy() #N,7
@@ -317,9 +318,9 @@ if __name__ == '__main__':
             poses_est2 = np.hstack((faketime, poses_est1)) # (N,8) 即tum格式
             poses_gt2 = np.hstack((faketime, poses_gt1))
             outest = os.path.join(output, 'tum_est.txt')
-            outgt = os.path.join(cfg['data']['input_folder'], 'tum_gt.txt')
+            outgt =  os.path.join(output, 'tum_egt.txt')# os.path.join(cfg['data']['input_folder'], 'tum_gt.txt')
             print('save pose_est in tum format: ', outest)
-            print('save pose_gt in tum format: ', outgt)
+            print('save pose_egt in tum format: ', outgt)
             np.savetxt(outest, poses_est2)
             np.savetxt(outgt, poses_gt2)
-            np.savetxt(os.path.join(output, 'tum_gt.txt'), poses_gt2)
+            # np.savetxt(os.path.join(output, 'tum_gt.txt'), poses_gt2)

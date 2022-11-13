@@ -1,0 +1,40 @@
+now do Replica-office0 	 
+ddl_output/Replica_prior/office0orb-sp-5hz-KLoss-stagecolor not wxist, skip! 
+now do Replica-office1 	 
+evaluating ddl_output/Replica_prior/office1orb-sp-5hz-KLoss-stagecolor/mesh/final_mesh_eval_rec.ply
+accuracy:  24.085704572753166
+completion:  8.189721010777545
+completion ratio:  44.5055
+Depth L1:  23.981274664402008
+now do Replica-office2 	 
+evaluating ddl_output/Replica_prior/office2orb-sp-5hz-KLoss-stagecolor/mesh/final_mesh_eval_rec.ply
+accuracy:  25.458490654858846
+completion:  10.059682216758349
+completion ratio:  39.8825
+Depth L1:  29.655402898788452
+now do Replica-office3 	 
+evaluating ddl_output/Replica_prior/office3orb-sp-5hz-KLoss-stagecolor/mesh/final_mesh_eval_rec.ply
+accuracy:  33.7760597953364
+completion:  9.056250368376132
+completion ratio:  43.5415
+Depth L1:  27.523428201675415
+now do Replica-office4 	 
+evaluating ddl_output/Replica_prior/office4orb-sp-5hz-KLoss-stagecolor/mesh/final_mesh_eval_rec.ply
+accuracy:  39.28578692622751
+completion:  12.474957860961041
+completion ratio:  29.176000000000002
+Depth L1:  37.25699782371521
+now do Replica-room0 	 
+evaluating ddl_output/Replica_prior/room0orb-sp-5hz-KLoss-stagecolor/mesh/final_mesh_eval_rec.ply
+accuracy:  28.63212187136711
+completion:  8.028819624606037
+completion ratio:  46.043
+Depth L1:  16.385094821453094
+now do Replica-room1 	 
+ddl_output/Replica_prior/room1orb-sp-5hz-KLoss-stagecolor not wxist, skip! 
+now do Replica-room2 	 
+evaluating ddl_output/Replica_prior/room2orb-sp-5hz-KLoss-stagecolor/mesh/final_mesh_eval_rec.ply
+accuracy:  24.260790028988364
+completion:  9.482849468176566
+completion ratio:  44.696000000000005
+Depth L1:  18.415488302707672

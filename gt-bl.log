@@ -1,0 +1,20 @@
+now do Replica-office0 	 
+evaluating ddl_output/Replica_prior/office0gt-bl/mesh/final_mesh_eval_rec.ply
+accuracy:  32.364976298483235
+completion:  9.69053876979947
+completion ratio:  48.3385
+Depth L1:  20.13169229030609
+now do Replica-office1 	 
+ddl_output/Replica_prior/office1gt-bl not wxist, skip! 
+now do Replica-office2 	 
+ddl_output/Replica_prior/office2gt-bl not wxist, skip! 
+now do Replica-office3 	 
+ddl_output/Replica_prior/office3gt-bl not wxist, skip! 
+now do Replica-office4 	 
+ddl_output/Replica_prior/office4gt-bl not wxist, skip! 
+now do Replica-room0 	 
+ddl_output/Replica_prior/room0gt-bl not wxist, skip! 
+now do Replica-room1 	 
+ddl_output/Replica_prior/room1gt-bl not wxist, skip! 
+now do Replica-room2 	 
+ddl_output/Replica_prior/room2gt-bl not wxist, skip! 

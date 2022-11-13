@@ -1,0 +1,20 @@
+now do Replica-office0 	 
+evaluating ddl_output/Replica_ablate/office0gt-only-spd-wowt/mesh/final_mesh_eval_rec.ply
+accuracy:  44.51080150037037
+completion:  7.0998371204724675
+completion ratio:  58.1695
+Depth L1:  12.992225587368011
+now do Replica-office1 	 
+ddl_output/Replica_ablate/office1gt-only-spd-wowt not wxist, skip! 
+now do Replica-office2 	 
+ddl_output/Replica_ablate/office2gt-only-spd-wowt not wxist, skip! 
+now do Replica-office3 	 
+ddl_output/Replica_ablate/office3gt-only-spd-wowt not wxist, skip! 
+now do Replica-office4 	 
+ddl_output/Replica_ablate/office4gt-only-spd-wowt not wxist, skip! 
+now do Replica-room0 	 
+ddl_output/Replica_ablate/room0gt-only-spd-wowt not wxist, skip! 
+now do Replica-room1 	 
+ddl_output/Replica_ablate/room1gt-only-spd-wowt not wxist, skip! 
+now do Replica-room2 	 
+ddl_output/Replica_ablate/room2gt-only-spd-wowt not wxist, skip! 

@@ -557,11 +557,17 @@ class Mapper(object):
             # 也打印一下 各个 kl loss    
             if (joint_iter % self.visualizer.inside_freq == 0) and (joint_iter>0): # (idx % self.visualizer.freq == 0) and 
                 if self.use_KL_loss and self.use_regulation:
-                    print(f'[{self.stage}] Fid {idx:d} -- {joint_iter:d}, Re-rendering loss: {initial_loss:.2f}->{loss:.2f}. KL_loss: {initial_kl_loss:.2f}->{kl_loss:.2f}. Reg_loss: {initial_regulation_loss:.2f}->{regulation_loss:.2f}')
+                    if regulation_loss is None:
+                       print(f'[{self.stage}] Fid {idx:d} -- {joint_iter:d}, Re-rendering loss: {initial_loss:.2f}->{loss:.2f}. KL_loss: {initial_kl_loss:.2f}->{kl_loss:.2f}. sp_factor: {sp_factor:.2f} ')
+                    else: 
+                        print(f'[{self.stage}] Fid {idx:d} -- {joint_iter:d}, Re-rendering loss: {initial_loss:.2f}->{loss:.2f}. KL_loss: {initial_kl_loss:.2f}->{kl_loss:.2f}. sp_factor: {sp_factor:.2f}. Reg_loss: {initial_regulation_loss:.2f}->{regulation_loss:.2f}')
                 elif self.use_KL_loss and not self.use_regulation:
                     print(f'[{self.stage}] Fid {idx:d} -- {joint_iter:d}, Re-rendering loss: {initial_loss:.2f}->{loss:.2f}. KL_loss: {initial_kl_loss:.2f}->{kl_loss:.2f}. sp_factor: {sp_factor:.2f} ')
                 elif not self.use_KL_loss and self.use_regulation:
-                    print(f'[{self.stage}] Fid {idx:d} -- {joint_iter:d}, Re-rendering loss: {initial_loss:.2f}->{loss:.2f}. Reg_loss: {initial_regulation_loss:.2f}->{regulation_loss:.2f}')
+                    if regulation_loss is None:
+                        print(f'[{self.stage}] Fid {idx:d} -- {joint_iter:d}, Re-rendering loss: {initial_loss:.2f}->{loss:.2f}')
+                    else:
+                        print(f'[{self.stage}] Fid {idx:d} -- {joint_iter:d}, Re-rendering loss: {initial_loss:.2f}->{loss:.2f}. Reg_loss: {initial_regulation_loss:.2f}->{regulation_loss:.2f}')
                 else:
                     print(f'[{self.stage}] Fid {idx:d} -- {joint_iter:d}, Re-rendering loss: {initial_loss:.2f}->{loss:.2f}')
             optimizer.zero_grad() #梯度归零
@@ -767,8 +773,8 @@ class Mapper(object):
                 #     kl_loss_sp = sigma_sum_sp[sigma_sum_sp<500.].mean()
                 #     kl_loss += kl_loss_sp
                 loss += self.sigma_lambda*kl_loss
-
-            if self.use_regulation and validflag: # 对于 nice 当先验深度非全0时 也像下面那样同样正则化 前景
+            # 只在初期有regu
+            if self.use_regulation and validflag and (idx<=50): # 对于 nice 当先验深度非全0时 也像下面那样同样正则化 前景
                 point_sigma = self.renderer.regulation_occ(
                     c, self.decoders, batch_rays_d, batch_rays_o, batch_gt_depth, device, self.stage)
                 regulation_loss = torch.abs(point_sigma).sum()
@@ -776,7 +782,7 @@ class Mapper(object):
             
             # for imap*, it uses volume density
             regulation = (not self.occupancy)
-            if regulation and batch_gt_depth is not None: # 增加条件 但其实 不会none了 总是0与非0
+            if regulation and (batch_gt_depth is not None): # 增加条件 但其实 不会none了 总是0与非0
                 point_sigma = self.renderer.regulation(
                     c, self.decoders, batch_rays_d, batch_rays_o, batch_gt_depth, device, self.stage)
                 regulation_loss = torch.abs(point_sigma).sum()

@@ -1,0 +1,24 @@
+now do Replica-office0 	 
+evaluating output/Replica_pose/office0orb-sp-5hz-KLoss-stagecolor/mesh/final_mesh_eval_rec.ply
+accuracy:  33.88794575248991
+completion:  6.5301985065468084
+completion ratio:  55.417
+Depth L1:  14.670297503471375
+now do Replica-office1 	 
+output/Replica_pose/office1orb-sp-5hz-KLoss-stagecolor not wxist, skip! 
+now do Replica-office2 	 
+output/Replica_pose/office2orb-sp-5hz-KLoss-stagecolor not wxist, skip! 
+now do Replica-office3 	 
+output/Replica_pose/office3orb-sp-5hz-KLoss-stagecolor not wxist, skip! 
+now do Replica-office4 	 
+output/Replica_pose/office4orb-sp-5hz-KLoss-stagecolor not wxist, skip! 
+now do Replica-room0 	 
+output/Replica_pose/room0orb-sp-5hz-KLoss-stagecolor not wxist, skip! 
+now do Replica-room1 	 
+evaluating output/Replica_pose/room1orb-sp-5hz-KLoss-stagecolor/mesh/final_mesh_eval_rec.ply
+accuracy:  19.299299040111435
+completion:  7.38491130009279
+completion ratio:  49.668
+Depth L1:  15.188728272914886
+now do Replica-room2 	 
+output/Replica_pose/room2orb-sp-5hz-KLoss-stagecolor not wxist, skip! 

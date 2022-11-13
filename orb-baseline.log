@@ -1,0 +1,40 @@
+now do Replica-office0 	 
+ddl_output/Replica_prior/office0orb not wxist, skip! 
+now do Replica-office1 	 
+evaluating ddl_output/Replica_prior/office1orb/mesh/final_mesh_eval_rec.ply
+accuracy:  51.20796981335213
+completion:  66.26463118520498
+completion ratio:  2.6025
+Depth L1:  91.48501753807068
+now do Replica-office2 	 
+evaluating ddl_output/Replica_prior/office2orb/mesh/final_mesh_eval_rec.ply
+accuracy:  49.56609355384675
+completion:  82.32090397471661
+completion ratio:  3.984
+Depth L1:  132.66315460205078
+now do Replica-office3 	 
+evaluating ddl_output/Replica_prior/office3orb/mesh/final_mesh_eval_rec.ply
+accuracy:  47.840527741062296
+completion:  96.82794611953742
+completion ratio:  3.3274999999999997
+Depth L1:  142.09450483322144
+now do Replica-office4 	 
+evaluating ddl_output/Replica_prior/office4orb/mesh/final_mesh_eval_rec.ply
+accuracy:  57.186891581000886
+completion:  104.26427050568303
+completion ratio:  2.6845
+Depth L1:  155.52058219909668
+now do Replica-room0 	 
+evaluating ddl_output/Replica_prior/room0orb/mesh/final_mesh_eval_rec.ply
+accuracy:  53.74262967347586
+completion:  154.3646624734956
+completion ratio:  0.9854999999999999
+Depth L1:  166.95300340652466
+now do Replica-room1 	 
+ddl_output/Replica_prior/room1orb not wxist, skip! 
+now do Replica-room2 	 
+evaluating ddl_output/Replica_prior/room2orb/mesh/final_mesh_eval_rec.ply
+accuracy:  47.50444728845634
+completion:  81.42271971094101
+completion ratio:  4.4245
+Depth L1:  134.48344469070435

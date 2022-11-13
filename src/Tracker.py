@@ -228,7 +228,7 @@ class Tracker(object):
                 elif self.gt_camera and (not self.prior_camera):
                     c2w = gt_c2w
                 elif (not self.gt_camera) and self.prior_camera:
-                    c2w = prior_c2w # 可能为nan tensor
+                    c2w = prior_c2w # 可能为nan tensor ?
                 elif self.gt_camera and self.prior_camera:
                     assert False, f"prior pose not along with gt pose !"
                     

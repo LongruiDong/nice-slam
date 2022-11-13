@@ -489,7 +489,8 @@ class Renderer(object):
             
             z_vals = torch.cat(z_vals_list, dim=0)
             # img 内的 weights 切片可视化检验 debug
-            if gt_depth is not None: # 即当前img是orb kf情况下 gt_depth is not None
+            nonesigma = all(i is None for i in sigma_loss_list) #
+            if (gt_depth is not None) and (not nonesigma): # 即当前img是orb kf情况下 gt_depth is not None
                 sigma_loss = torch.cat(sigma_loss_list, dim=0)
                 if sigma_loss.shape[0] > 0:
                     

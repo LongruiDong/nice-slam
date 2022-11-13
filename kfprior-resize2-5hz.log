@@ -1,0 +1,10 @@
+evaluating output/Replica_prior/office0gt-sp-resize2-5hz-KLoss-kfprior/mesh/final_mesh_eval_rec.ply
+accuracy:  36.39500109883764
+completion:  7.6605942670534795
+completion ratio:  47.5595
+Depth L1:  16.74066185951233
+evaluating output/Replica_prior/office0gt-sp-resize2-5hz-KLossfilter-stagecolor/mesh/final_mesh_eval_rec.ply
+accuracy:  37.414283773541484
+completion:  7.208469245887889
+completion ratio:  52.042
+Depth L1:  15.709275007247925
