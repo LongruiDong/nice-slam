@@ -21,15 +21,19 @@ GT_MESH=Datasets/Replica/cull_replica_mesh/office0.ply
 # OUTPUT_FOLDER=output/Replica/office0gt-nodloss-woNsurf
 # OUTPUT_FOLDER=output/Replica/office0gt-nodloss-woNsurf-Ni32
 # OUTPUT_FOLDER=output/Replica/office0gt-nodloss-woNsurf-Ni32-ws10-p2k # output/Replica/office0gt-nodloss-woNsurf-Ni32-ws41 # output/Replica/office0gt-nodloss-woNsurf-Ni32-ws10-p2k-f1k5-it1k # output/Replica/office0gt-nodloss-woNsurf-Ni32-p1k-f4k-it4k
-OUTPUT_FOLDER=/home/dlr/Project1/nice-slam/output/Replica/office0gt-nodloss-woNsurf-Ni32-p1k-f4k-it4k-mysamp
-python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/01950_mesh.ply --gt_mesh $GT_MESH -2d -3d
+# OUTPUT_FOLDER=/home/dlr/Project1/nice-slam/output/Replica/office0gt-nodloss-woNsurf-Ni32-p1k-f4k-it4k-mysamp
+# python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/01950_mesh.ply --gt_mesh $GT_MESH -2d -3d
 
 
-# OUTPUT_FOLDER=output/Replica/office0gt-nodepthloss
+# OUTPUT_FOLDER=output_bl/Replica/office0gtp-rgb-resize2
+# # output_bl/Replica/office0gtp-rgb-map25hz-resize2
+# # output_bl/Replica/office0gtp-rgb-map25hz
+# # output_bl/Replica/office0gtp-rgb
 # python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/final_mesh_eval_rec.ply --gt_mesh $GT_MESH -2d -3d
 
-# OUTPUT_FOLDER=output/Replica/office0gt-nodloss-pix5000
-# python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/final_mesh_eval_rec.ply --gt_mesh $GT_MESH -2d -3d
+OUTPUT_FOLDER=output_imap_bl/Replica/office0gtp-rgb
+# output/Replica/office0gt-nodloss-pix5000
+python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/final_mesh_eval_rec.ply --gt_mesh $GT_MESH -2d -3d
 
 # OUTPUT_FOLDER=output/Replica/office0gt-nodloss-pix10240
 # python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/final_mesh_eval_rec.ply --gt_mesh $GT_MESH -2d -3d
