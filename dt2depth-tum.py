@@ -9,8 +9,9 @@ office0_orb_mappts.txt 仅是所有3d点坐标 (验证过各文件 一致 除了
 并估计有效区域的depth 保存并可视化
 
 尺度问题 放在nice-slam 里的scale 参数得了，那这里就需要用位姿估计尺度了
-也用来保存某几帧的结果，放到pipeline里面了
+也用来保存某几帧的结果, 放到pipeline里面了
 subdiv https://zhuanlan.zhihu.com/p/340510482
+专门针对于 tum数据
 """
 
 import argparse, os, copy
@@ -36,7 +37,7 @@ from numba import jit
 # 用来分析时间
 import line_profiler as lp
 
-fps = 10 # 生成伪时间 但要根据设置的帧率
+# fps = 10 # 生成伪时间 但要根据设置的帧率
 
 def align(model,data,calc_scale=True):
     """Align two trajectories using the method of Horn (closed-form).

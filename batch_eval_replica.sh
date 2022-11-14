@@ -1,7 +1,7 @@
 #!/bin/bash
 # 对replica数据 3d mesh 质量的评估
 # 设置gpu
-CUDA_VISIBLE_DEVICES=1
+CUDA_VISIBLE_DEVICES=2
 
 gt_dir=Datasets/Replica/cull_replica_mesh
 
@@ -25,7 +25,7 @@ for ((i=0; i<8; i++)); do
     GT_MESH=${gt_dir}/${evalset[$i]}.ply
     OUTPUT_FOLDER=${out_dir}/${evalset[$i]}${suffix}
     if [ ! -d $OUTPUT_FOLDER ]; then
-        printf "%s not wxist, skip!" "$OUTPUT_FOLDER"
+        printf "%s not exist, skip! \n" "$OUTPUT_FOLDER"
         continue
     fi
     python -W ignore src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/final_mesh_eval_rec.ply --gt_mesh $GT_MESH -2d -3d
