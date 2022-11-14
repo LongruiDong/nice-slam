@@ -4,7 +4,7 @@ grid_len: #对于office0
   middle: 0.64 # 0.32
   fine: 0.32 #0.16
   color: 0.32
-  bound_divisable: 0.32
+  bound_divisible: 0.32
 tracking:
   gt_camera: False #? True False
  #? True False

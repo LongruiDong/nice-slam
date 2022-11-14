@@ -5,7 +5,7 @@ grid_len: #对于outdoor该如何设 for scene01
   middle: 1.28 # 2.64
   fine: 0.64 #1.32
   color: 0.64
-  bound_divisable: 0.32
+  bound_divisible: 0.32
 tracking:
   vis_freq: 50
   vis_inside_freq: 25

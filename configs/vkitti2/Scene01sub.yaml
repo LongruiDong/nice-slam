@@ -6,7 +6,7 @@ grid_len: #对于office0
   middle: 0.90 # 0.32 0.64
   fine: 0.50 #0.16 0.32
   color: 0.50
-  bound_divisable: 0.90 # 0.32
+  bound_divisible: 0.90 # 0.32
 meshing: #这些参数要调整
   level_set: 0
   resolution: 256 # change to 512 for higher resolution geometry

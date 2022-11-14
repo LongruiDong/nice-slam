@@ -170,7 +170,7 @@ class NICE_SLAM():
         self.bound = torch.from_numpy(
             np.array(cfg['mapping']['bound'])*self.scale) #bound也会根据scle设置调整
         bound_divisible = cfg['grid_len']['bound_divisible']
-        # enlarge the bound a bit to allow it divisible by bound_divisible 为啥要除以bound_divisable
+        # enlarge the bound a bit to allow it divisible by bound_divisible 为啥要除以bound_divisible
         self.bound[:, 1] = (((self.bound[:, 1]-self.bound[:, 0]) /
                             bound_divisible).int()+1)*bound_divisible+self.bound[:, 0]
         if self.nice: #2 level 和颜色 共用一个bound
