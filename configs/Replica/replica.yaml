@@ -1,4 +1,6 @@
 dataset: 'replica'
+usepriormap: True # 增加选项 若为true表示只是定位 载入给定地图 false即为原nice-slam
+rgbonly: True # 增加选项 是否为单目模式 即无depth loss
 meshing:
   eval_rec: True
 tracking:
@@ -22,6 +24,8 @@ mapping:
   pixels: 1000
   iters_first: 1500
   iters: 60
+  middle_iter_ratio: -1. # 0.4 # rgbonly时 只有color stage
+  fine_iter_ratio: -1. # 0.6
 cam:
   H: 680
   W: 1200

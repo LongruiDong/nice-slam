@@ -7,7 +7,7 @@ def get_model(cfg,  nice=True):
 
     Args:
         cfg (dict): imported yaml config.
-        nice (bool, optional): whether or not use Neural Implicit Scalable Encoding. Defaults to False.
+        nice (bool, optional): whether or not use Neural Implicit Scalable Encoding. Defaults to False. True吧
 
     Returns:
         decoder (nn.module): the network model.
@@ -21,7 +21,7 @@ def get_model(cfg,  nice=True):
     c_dim = cfg['model']['c_dim']  # feature dimensions
     pos_embedding_method = cfg['model']['pos_embedding_method']
     if nice:
-        decoder = models.decoder_dict['nice'](
+        decoder = models.decoder_dict['nice']( # nice  初始化 包含 coarse(if true) middile fine  color 4个 decoder mlp
             dim=dim, c_dim=c_dim, coarse=cfg['coarse'], coarse_grid_len=coarse_grid_len,
             middle_grid_len=middle_grid_len, fine_grid_len=fine_grid_len,
             color_grid_len=color_grid_len, pos_embedding_method=pos_embedding_method)

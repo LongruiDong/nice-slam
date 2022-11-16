@@ -73,30 +73,7 @@ if __name__ == '__main__':
         # show every second frame for speed up 2 1 5
         if args.vis_input_frame and i % 2 == 0:
             idx, gt_color, gt_depth, gt_c2w = frame_reader[i]
-            # if idx == 76:
-            #     print('here')
             depth_np = gt_depth.numpy()
-            # # 对于tartanair 会有深度值很大的异常值 但已经clip 0--10000
-            # depth_np = np.clip(depth_np, 0 , 600)
-            # depthvec = depth_np.reshape(-1,)
-            # bands = int((depthvec.max()-0)/batch)+1
-            # bins = np.arange(0,depthvec.max()+1,batch)
-            # x_ticks = bins - batch/2
-            # if (i==76 or i==82 or i==83 or
-            # # (i>=96 and i<=214) or
-            # (i>=237 and i<=240) or
-            # (i>=254 and i<=265)):
-            #     plt.hist(depthvec,bins,rwidth=0.5)
-            #     plt.xticks(x_ticks)
-            #     plt.xlim(0,depthvec.max()+1)
-            #     plt.title(f'{i:05d}_depthhist')
-            #     plt.savefig(f'{output}/depthhist/{i:05d}_hist.jpg')
-            #     plt.show()
-            #     plt.pause(1)
-            #     plt.cla()
-            # depth_np = depth_np.astype(np.float)*100
-            # depth_np = np.clip(depth_np, 0, 65535)
-            # depth_np = depth_np.astype(np.uint16)
             gt_alldepthv = np.unique(depth_np)
             gt_alldepthv1 = gt_alldepthv[np.argsort(-gt_alldepthv)] #降序排列
             secondmax_depth = gt_alldepthv1[1] # 次大值 保证不是sky 无限远
@@ -125,7 +102,7 @@ if __name__ == '__main__':
             frontend.update_pose(1, gt_c2w_list[i], gt=True)
         # the visualizer might get stucked if update every frame
         # with a long sequence (10000+ frames) 10 5 2
-        if i % 5 == 0:
+        if i % 10 == 0:
             frontend.update_cam_trajectory(i, gt=False)
             if not args.no_gt_traj:
                 frontend.update_cam_trajectory(i, gt=True)

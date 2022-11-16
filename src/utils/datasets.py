@@ -228,7 +228,10 @@ class Replica(BaseDataset):
         # dnet预测的不确定性路径
         self.stdv_paths = sorted(
                 glob.glob(f'{self.input_folder}/dstdpred/dstdv*.npy'))
-        self.n_img = len(self.color_paths) # 301 len(self.color_paths) #测试观测不够时 的fusion效果 1000
+        if cfg['data']['endnum']>0:
+            self.n_img = int(cfg['data']['endnum'])
+        else:
+            self.n_img = len(self.color_paths) # 301 len(self.color_paths) #测试观测不够时 的fusion效果 1000
         print('imagelen: {}'.format(self.n_img))
         self.load_poses(f'{self.input_folder}/traj.txt')
 

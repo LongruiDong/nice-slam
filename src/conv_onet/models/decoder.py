@@ -87,7 +87,7 @@ class Same(nn.Module):
         x = x.squeeze(0)
         return x
 
-
+# 对应于imap*/ nice-slam
 class MLP(nn.Module):
     """
     Decoder. Point coordinates not only used in sampling the feature grids, but also as MLP input.

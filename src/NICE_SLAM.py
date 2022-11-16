@@ -5,6 +5,7 @@ import numpy as np
 import torch
 import torch.multiprocessing
 import torch.multiprocessing as mp
+from torch.utils.data import DataLoader
 
 from src import config
 from src.Mapper import Mapper
@@ -29,6 +30,8 @@ class NICE_SLAM():
         self.args = args
         self.nice = args.nice
         # 这些变量来自与yaml哪里
+        self.rgbonly = cfg['rgbonly']
+        self.usepriormap = cfg['usepriormap'] # 使用之前建好的grid以及color decoder
         self.coarse = cfg['coarse']
         self.occupancy = cfg['occupancy']
         self.low_gpu_mem = cfg['low_gpu_mem']
@@ -47,16 +50,26 @@ class NICE_SLAM():
             'W'], cfg['cam']['fx'], cfg['cam']['fy'], cfg['cam']['cx'], cfg['cam']['cy'] #相机参数
         self.update_cam()
 
-        model = config.get_model(cfg,  nice=self.nice)
-        self.shared_decoders = model #which scale?
+        model = config.get_model(cfg,  nice=self.nice) # 初始化 包含 coarse(if true) middile fine  color 4个 decoder mlp
+        self.shared_decoders = model # 还不带weight?
 
         self.scale = cfg['scale'] #?
 
         self.load_bound(cfg) 
-        if self.nice:
-            self.load_pretrain(cfg)
-            self.grid_init(cfg)
+        if self.nice: # nice  需要训好的 decoder
+            if self.usepriormap:
+                # to do color权重 的载入
+                # to do 整个shared_c的载入
+                # pass
+                # self.grid_init(cfg) # debug 就是因为我目前 对 grid的载入问题
+                self.load_priormap(cfg)
+            else:
+                self.load_pretrain(cfg) # 没有color的权重
+                self.grid_init(cfg)
         else:
+            if self.usepriormap: # 就MLP 所以shared_c还空
+                # to do 单个的MLP权值的载入
+                pass
             self.shared_c = {}
 
         # need to use spawn
@@ -91,9 +104,9 @@ class NICE_SLAM():
         self.shared_decoders.share_memory()
         self.renderer = Renderer(cfg, args, self)
         self.mesher = Mesher(cfg, args, self)
-        self.logger = Logger(cfg, args, self)
+        self.logger = Logger(cfg, args, self) # 存储参数
         self.mapper = Mapper(cfg, args, self, coarse_mapper=False)
-        if self.coarse:
+        if self.coarse and False: # (not self.rgbonly)
             self.coarse_mapper = Mapper(cfg, args, self, coarse_mapper=True)
         self.tracker = Tracker(cfg, args, self)
         self.print_output_desc()
@@ -161,7 +174,7 @@ class NICE_SLAM():
     def load_pretrain(self, cfg):
         """
         Load parameters of pretrained ConvOnet checkpoints to the decoders.
-
+        注意只是表示几何的那3个decoder
         Args:
             cfg (dict): parsed config dict
         """
@@ -193,7 +206,7 @@ class NICE_SLAM():
 
     def grid_init(self, cfg):
         """
-        Initialize the hierarchical feature grids. 这个看看到底是怎么弄
+        Initialize the hierarchical feature grids. 这个看看到底是怎么弄 都是随机初始化
         grid_len 不受scale的参数影响
         Args:
             cfg (dict): parsed config dict.
@@ -255,6 +268,32 @@ class NICE_SLAM():
 
         self.shared_c = c
 
+    def load_priormap(self, cfg):
+        """
+        从之前已经建立好的map文件 ckpt 载入需要的 grid_feature 和 所有decoder 特别是color decoder
+        反正另外3个decodera是pretrained
+        Args:
+            cfg (dict): parsed config dict
+        """
+        ckpt_path = cfg['tracking']['priormap'] # yaml设置好的ckpt/中最后一个文件
+        print('Get ckpt :', ckpt_path)
+        ckpt = torch.load(ckpt_path, map_location=cfg['mapping']['device'])
+        print('Load prior map ckpt done !')
+        # 直接拿出 grid tmp_c
+        self.shared_c = ckpt['c']
+        # 需要更改 c里 各level requires_grad 属性为valse
+        for key, val in self.shared_c.items():
+            val.requires_grad = False
+            self.shared_c[key] = val.cpu()
+        print('[Debug] grid_color: \n',self.shared_c['grid_color'].shape)
+        # # 再读入 几何decoder
+        # self.load_pretrain(cfg)
+        # 一次性读入去全部 
+        self.shared_decoders.load_state_dict(ckpt['decoder_state_dict'])
+        print('Load prior decoder all state_dict done !')
+        
+    
+    
     def tracking(self, rank):
         """
         Tracking Thread.
@@ -303,7 +342,7 @@ class NICE_SLAM():
             elif rank == 1:
                 p = mp.Process(target=self.mapping, args=(rank, ))
             elif rank == 2:
-                if self.coarse:
+                if self.coarse and False: # (not self.rgbonly)
                     p = mp.Process(target=self.coarse_mapping, args=(rank, )) # coarse mapping独立出来线程
                 else:
                     continue
@@ -312,6 +351,19 @@ class NICE_SLAM():
         for p in processes:
             p.join()
 
+    # def justreconmesh(self, outdir):
+    #     """
+    #     载入grid后 只是得到对应的mesh 用来直接 eval
+    #     """
+    #     frame_loader = DataLoader(
+    #         self.frame_reader, batch_size=1, shuffle=False, num_workers=1)
+    #     pbar = frame_loader
+    #     for idx, gt_color, gt_depth, gt_c2w in pbar:
+    #         gt_c2w = gt_c2w[0]
+        
+    #     self.gt_c2w_list[idx] = gt_c2w.clone().cpu()
+        
+        
 
 # This part is required by torch.multiprocessing
 if __name__ == '__main__':

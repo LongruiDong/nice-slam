@@ -25,7 +25,7 @@ class Mapper(object):
         self.cfg = cfg
         self.args = args
         self.coarse_mapper = coarse_mapper #coarse level的优化
-
+        self.rgbonly = slam.rgbonly
         self.idx = slam.idx
         self.nice = slam.nice
         self.c = slam.shared_c
@@ -45,6 +45,9 @@ class Mapper(object):
         self.slecti = torch.zeros(0,)
         self.slectj = torch.zeros(0,)
         self.gmstep = int(0) # 记录总的优化迭代次数 记录用来 decay 退火ray上bound from regnerf
+        
+        # loc only 
+        self.usepriormap = slam.usepriormap
 
         self.scale = cfg['scale']
         self.coarse = cfg['coarse']
@@ -326,7 +329,7 @@ class Mapper(object):
                         color_grid_para.append(val)
 
                 else:
-                    mask = self.get_mask_from_c2w(
+                    mask = self.get_mask_from_c2w( # 这里竟然还要用gt depth
                         mask_c2w, key, val.shape[2:], gt_depth_np)
                     mask = torch.from_numpy(mask).permute(2, 1, 0).unsqueeze(
                         0).unsqueeze(0).repeat(1, val.shape[1], 1, 1, 1)
@@ -346,15 +349,15 @@ class Mapper(object):
                     elif key == 'grid_color':
                         color_grid_para.append(val_grad)
 
-        if self.nice:
-            if not self.fix_fine:
+        if self.nice: # nice 其实只有color decoder 是训练的 其余都是fix
+            if not self.fix_fine: # 默认固定 fine decoder
                 decoders_para_list += list(
                     self.decoders.fine_decoder.parameters())
-            if not self.fix_color:
+            if not self.fix_color: # 默认打开 color decoder
                 decoders_para_list += list(
                     self.decoders.color_decoder.parameters())
         else:
-            # imap*, single MLP
+            # imap*, single MLP 是肯定要优化decoder
             decoders_para_list += list(self.decoders.parameters())
 
         if self.BA:
@@ -388,7 +391,7 @@ class Mapper(object):
                                               {'params': fine_grid_para, 'lr': 0},
                                               {'params': color_grid_para, 'lr': 0},
                                               {'params': camera_tensor_list, 'lr': 0}])
-            else: # 若关闭self.BA 就不优化相机位姿
+            else: # 若关闭self.BA 就不优化相机位姿  每次mapping就要重新得到一个optmizer 并进行一些设置
                 optimizer = torch.optim.Adam([{'params': decoders_para_list, 'lr': 0},
                                               {'params': coarse_grid_para, 'lr': 0},
                                               {'params': middle_grid_para, 'lr': 0},
@@ -435,7 +438,7 @@ class Mapper(object):
                     if self.stage == 'color':
                         optimizer.param_groups[5]['lr'] = self.BA_cam_lr
             else:
-                self.stage = 'color'
+                self.stage = 'color' # imap* 按color 来
                 optimizer.param_groups[0]['lr'] = cfg['mapping']['imap_decoders_lr']
                 if self.BA:
                     optimizer.param_groups[1]['lr'] = self.BA_cam_lr
@@ -523,11 +526,20 @@ class Mapper(object):
             # 和 tracker中的改动一致
             depth_mask = (batch_gt_depth > 0)# & (batch_gt_depth < 600) #只考虑mask内的像素参与误差 # 对于outdoor 加上 不属于无穷远 vkitti 655.35
             # 这里测试 loss 改为 color only loss
-            loss = torch.abs(
-                batch_gt_color[depth_mask]-color[depth_mask]).sum() # batch_gt_depth[depth_mask]-depth[depth_mask] batch_gt_color[depth_mask]-color[depth_mask]
-            if ((not self.nice) or (self.stage == 'color')):
+            if self.rgbonly:
+                loss = torch.tensor(0.0, requires_grad=True).to(device)  # 其他阶段都没color 下面还要加
+                self.w_color_loss = 1.
+                # loss = torch.abs(
+                #     batch_gt_color[depth_mask]-color[depth_mask]).sum() # batch_gt_depth[depth_mask]-depth[depth_mask] batch_gt_color[depth_mask]-color[depth_mask]
+            else: # 否则还是原来 rgb-d
+                loss = torch.abs(
+                batch_gt_depth[depth_mask]-depth[depth_mask]).sum()
+            if ((not self.nice) or (self.stage == 'color')): # 才发现 其他stage color是0 所以之前 rgb only 时应该 都改为color stage,反正其他stage color loss是错的
                 color_loss = torch.abs(batch_gt_color - color).sum()
                 weighted_color_loss = self.w_color_loss*color_loss
+                if self.rgbonly:
+                    self.w_color_loss = 1.
+                    weighted_color_loss = color_loss
                 loss += weighted_color_loss
 
             # for imap*, it uses volume density
@@ -542,7 +554,7 @@ class Mapper(object):
             optimizer.step() #梯度下降1次进行参数更新
             if not self.nice:
                 # for imap*
-                scheduler.step()
+                scheduler.step() # nice-slam 不需要 衰减学习率？
             optimizer.zero_grad()
 
             # put selected and updated features back to the grid
@@ -625,7 +637,7 @@ class Mapper(object):
                     self.middle_iter_ratio = 0.0
                     self.fine_iter_ratio = 0.0
                     num_joint_iters *= 5
-                    self.fix_color = True # color refine时 要固定住decoder 只优化grid
+                    self.fix_color = True # color refine时 要固定住decoder 只优化grid 那再loc only时 就更不需要 train color decoder
                     self.frustum_feature_selection = False # 不在只限制视锥内的grid feature
                     if self.verbose:
                         print(Fore.GREEN)
@@ -646,8 +658,8 @@ class Mapper(object):
             num_joint_iters = num_joint_iters//outer_joint_iters # 注意这里除法 300/3=100 imap* 这个策略很莫名其妙。。
             for outer_joint_iter in range(outer_joint_iters):
 
-                self.BA = (len(self.keyframe_list) > 4) and cfg['mapping']['BA'] and (
-                    not self.coarse_mapper)
+                self.BA = (len(self.keyframe_list) > 1) and cfg['mapping']['BA'] and ( # 4 | 1
+                    not self.coarse_mapper) # 这里表明 初期 不动位姿 且 coarse线程只是在优化grid! 那如何让体现paper说的 对 tracking的作用？
 
                 _ = self.optimize_map(num_joint_iters, lr_factor, idx, gt_color, gt_depth,
                                       gt_c2w, self.keyframe_dict, self.keyframe_list, cur_c2w=cur_c2w)
@@ -673,9 +685,9 @@ class Mapper(object):
             if not self.coarse_mapper:
                 if ((not (idx == 0 and self.no_log_on_first_frame)) and idx % self.ckpt_freq == 0) \
                         or idx == self.n_img-1:
-                    self.logger.log(idx, self.keyframe_dict, self.keyframe_list,
+                    self.logger.log(idx, self.keyframe_dict, self.keyframe_list, # 记录了最后的map参数
                                     selected_keyframes=self.selected_keyframes
-                                    if self.save_selected_keyframes_info else None)
+                                    if False else None) # self.save_selected_keyframes_info
 
                 self.mapping_idx[0] = idx
                 self.mapping_cnt[0] += 1

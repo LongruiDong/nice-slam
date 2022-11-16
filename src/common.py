@@ -93,7 +93,7 @@ def get_rays_from_uv(i, j, c2w, H, W, fx, fy, cx, cy, device):
 def select_uv(i, j, n, depth, color, device='cuda:0'):
     """
     Select n uv from dense uv. 他这里没按I-map那样采样啊。。 均匀分布来采样
-    # i和j其实就是 图像裁剪后区域每像素的 下标 (u,v)
+    i和j其实就是 图像裁剪后区域每像素的 下标 (u,v)
     """
     i = i.reshape(-1)
     j = j.reshape(-1)

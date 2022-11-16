@@ -97,15 +97,17 @@ def plot_traj(ax, stamps, traj, style, color, label):
     y = []
     last = stamps[0]
     for i in range(len(stamps)):
-        if stamps[i]-last < 2*interval:
+        # if stamps[i]-last < 2*interval:
+        if stamps[i]-last >= 1: # 1 5 50 10
             x.append(traj[i][0])
-            y.append(traj[i][2]) # 1 2(z)
-        elif len(x) > 0:
-            ax.plot(x, y, style, color=color, label=label)
-            label = ""
-            x = []
-            y = []
-        last = stamps[i]
+            y.append(traj[i][1]) # 1(y) 2(z)
+            last = stamps[i]
+        # elif len(x) > 0:
+        #     ax.plot(x, y, style, color=color, label=label)
+        #     label = ""
+        #     x = []
+        #     y = []
+        # last = stamps[i]
     if len(x) > 0:
         ax.plot(x, y, style, color=color, label=label)
 
@@ -198,7 +200,7 @@ def evaluate_ate(first_list, second_list, plot="", _args=""):
         ax = fig.add_subplot(111)
         ATE = numpy.sqrt(
             numpy.dot(trans_error, trans_error) / len(trans_error))
-        ax.set_title(f'len:{len(trans_error)} ATE RMSE:{ATE} {args.plot[:-3]}')
+        ax.set_title(f'len:{len(trans_error)} ATE RMSE:{ATE:.4f} {args.plot[:-3]}')
         plot_traj(ax, first_stamps, first_xyz_full.transpose().A,
                   '-', "black", "ground truth")
         plot_traj(ax, second_stamps, second_xyz_full_aligned.transpose(
@@ -208,11 +210,11 @@ def evaluate_ate(first_list, second_list, plot="", _args=""):
         for (a, b), (x1, y1, z1), (x2, y2, z2) in zip(matches, first_xyz.transpose().A, second_xyz_aligned.transpose().A):
             pass
             # if a%20==0: # 5 10 20
-            #     ax.plot([x1,x2],[z1,z2],'-',color="red",label=label) #y1,y2
+            #     ax.plot([x1,x2],[y1,y2],'-',color="red",label=label) #y1,y2 z1,z2
             # label = ""
         ax.legend(fontsize=20)# 设置图例字体大小
         ax.set_xlabel('x [m]', fontsize=20)# 设置坐标标签字体大小
-        ax.set_ylabel('z [m]', fontsize=20) #
+        ax.set_ylabel('y [m]', fontsize=20) #
         # 设置刻度字体大小
         plt.xticks(fontsize=20)
         plt.yticks(fontsize=20)

@@ -1,0 +1,107 @@
+inherit_from: configs/Replica/replica.yaml
+coarse: False #是否优化coarse level False 如果是 来自 离线的结果 那就取消注释
+usepriormap: True # 增加选项 若为 True 表示只是定位 载入给定地图 False 即为原nice-slam
+# scale: 5 # 深度和pose 平移都x此尺度1 4 5 测试
+rgbonly: True # 增加选项 是否为单目模式 即无depth loss
+tracking:
+  gt_camera: True #? True False
+  # 当usepriormap=True 给出prior地图的ckpt output/Replica/office0gt-nodloss-woNsurf-Ni32-ws10-p2k-f1k5-it1k/ckpts/01999.tar
+  priormap: /home/dlr/Project/nice_pl/output/Replica/office0gt-nodloss-80kf-glr-d120k-minlr-guidesample-woffs-exp7/epoch=014.tar
+  # /home/dlr/Project/nice_pl/output/Replica/office0gt-nodloss-80kf-glr-d120k-minlr-guidesample-woffs-exp6/epoch=016.tar
+  # /home/dlr/Project1/nice_pl/output/Replica/office0gt-nodloss-noshuffle-80kf-glr-d120k-minlr-guidesample/epoch=016.tar
+  # /home/dlr/Project1/nice_pl/output/Replica/office0gt-nodloss-80kf-glr-d120k-minlr-guidesample/epoch=037.tar
+  # /home/dlr/Project1/nice_pl/output/Replica/office0gt-nodloss-noshuffle-80kf-glr-d120k-minlr-guidesample-woffs/epoch=016.tar
+  # /home/dlr/Project1/nice_pl/output/Replica/office0gt-nodloss-woffs-80kf-glr-d120k-minlr/epoch=079.tar
+  # /home/dlr/Project1/nice_pl/output/Replica/office0gt-nodloss-woffs-80kf-glr-d120k/epoch=017.tar -guidesample
+  # /home/dlr/Project1/nice_pl/output/Replica/office0gt-nodloss-init--woffs-glr-d12k/epoch=029.tar
+  # output/Replica/office0gt-nodloss-init--woffs-glr/epoch=029.tar
+  # /home/dlr/Project1/nice_pl/output/Replica/office0gt-nodloss-noshuffle/epoch=000.tar # /home/dlr/Project/nice-slam/output/Replica/office0gt/ckpts/01999.tar # /home/dlr/Project1/nice_pl/output/Replica/office0gt-nodloss-init/epoch=029.tar
+  handle_dynamic: True #
+  vis_freq: 10 # 50| 10
+  vis_inside_freq: 25 # 25| 60
+  ignore_edge_W: 20
+  ignore_edge_H: 20
+  use_color_in_tracking: True # loc only 时必须打开
+  w_color_loss: 0.5 # loss中color的权重
+  seperate_LR: False
+  const_speed_assumption: True
+  # no_vis_on_first_frame: False # True
+  lr: 0.001 # 位姿部分的学习率
+  pixels: 500 # 200| 500
+  iters: 400 # 10| 60 400   1632
+meshing: #这些参数是否根据场景scale来调整
+  level_set: 0
+  resolution: 256 # change to 512 for higher resolution geometry
+  eval_rec: True
+  clean_mesh: True
+  depth_test: False
+  mesh_coarse_level: False # ?
+  clean_mesh_bound_scale: 1.02
+  get_largest_components: False
+  color_mesh_extraction_method: direct_point_query
+  remove_small_geometry_threshold: 0.2
+mapping:
+  every_frame: 25 # 5| 25 和 离线的80kf来对比
+  bound: [[-5.5,5.9],[-6.7,5.4],[-4.7,5.3]] # [[-5.5,5.9],[-6.7,5.4],[-4.7,5.3]]
+  marching_cubes_bound: [[-5.5,5.9],[-6.7,5.4],[-4.7,5.3]]
+  BA: False # True #mapping是否一同优化位姿 False
+  BA_cam_lr: 0.001 # 位姿部分的学习率
+  iters_first: 1 # 1500| 2000 4000 10 100 500
+  iters: 1 # 测试增大迭代次数 60| 100 120 600 1000 4000
+  no_vis_on_first_frame: False # True
+  no_mesh_on_first_frame: False
+  save_selected_keyframes_info: True
+  mapping_window_size: 5
+  keyframe_every: 50 # 50| 
+  pixels: 1000 # 窗口内若干关键帧使用的总像素(ray)数 实际中每个kf中ray数目更少 1000/5=200|  4096 1000*5=5000 2048*5=10240 4096*5=20480
+  vis_freq: 10 # 每# 帧 打印并可视化 mapping的中间结果 50 | 10
+  vis_inside_freq: 30 # 30| 200
+  ckpt_freq: 500 # 500| 20
+  mesh_freq: 500
+  fix_fine: True # 默认固定 fine decoder 当然coarse middle 就更fix
+  fix_color: True # 默认打开 color decoder 优先于下面 color decoder_lr True False
+  w_color_loss: 0.2 #  loss中color的权重
+  lr_first_factor: 5 #
+  lr_factor: 1 #初始化之后 因子1 即不再扩大
+  middle_iter_ratio: -1. # 0.4 # rgbonly时 只有color stage
+  fine_iter_ratio: -1. # 0.6
+  stage: # 具体赋值 来达到 mapping只去refine位姿的作用
+    coarse:
+      decoders_lr: 0.0
+      coarse_lr: 0.0 # 0.001 0.0
+      middle_lr: 0.0
+      fine_lr: 0.0
+      color_lr: 0.0
+    middle:
+      decoders_lr: 0.0
+      coarse_lr: 0.0
+      middle_lr: 0.0 # 0.1
+      fine_lr: 0.0
+      color_lr: 0.0
+    fine:
+      decoders_lr: 0.0
+      coarse_lr: 0.0
+      middle_lr: 0.0 # 0.005
+      fine_lr: 0.0 # 0.005
+      color_lr: 0.0
+    color:
+      decoders_lr: 0.0 # 0.005 #color 的decoder 可以打开试试
+      coarse_lr: 0.0
+      middle_lr: 0.0 # 0.005 #最后stage优化时 要对 middle fine 也要优化
+      fine_lr: 0.0 # 0.005
+      color_lr: 0.0 # 0.005 
+rendering:
+  N_samples: 32 #N_strat
+  N_surface: 0 #在深度周围 16| 0 
+  N_importance: 32 #为啥是0 nerf里是有这一步 hirecial 采样吧 12(imap*) 16(总数和原始保持一致) 32
+  lindisp: False
+  perturb: 0.0 
+data:
+  input_folder: Datasets/Replica/office0
+  output: /home/dlr/Project/nice_pl/output/Replica/office0gt-nodloss-80kf-glr-d120k-minlr-guidesample-woffs-exp7 # goodmesh 
+  endnum: -1 # 实际那前#帧 若为-1 则默认全部 600 1000 16
+cam:
+  # depth_trunc: -1 # add for limit bound discard larger depth
+  # 增加根据dnet预测的深度的不确定性来prune pred depth
+  dstdv_cut_max: -1  # 对于office 实际最大值在0.35左右 0.25 0.2 0.15
+  # crop_size: [340,600]

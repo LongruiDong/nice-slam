@@ -46,7 +46,7 @@ class Renderer(object):
             mask = mask_x & mask_y & mask_z
 
             pi = pi.unsqueeze(0)
-            if self.nice: #注意这里stage
+            if self.nice: #注意这里stage 如果不是color 就不返回rgb？
                 ret = decoders(pi, c_grid=c, stage=stage)
             else: # imap* 
                 ret = decoders(pi, c_grid=None)
@@ -260,7 +260,7 @@ class Renderer(object):
     # this is only for imap*
     def regulation(self, c, decoders, rays_d, rays_o, gt_depth, device, stage='color'):
         """
-on that discourage any geometry from the camera center to 0.85*depth.        Regulati
+        Regulation that discourage any geometry from the camera center to 0.85*depth.        
         For imap, the geometry will not be as good if this loss is not added.
 
         Args:
