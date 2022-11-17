@@ -26,6 +26,8 @@ class Tracker(object):
         self.occupancy = cfg['occupancy']
         self.sync_method = cfg['sync_method']
         self.rgbonly = slam.rgbonly
+        self.usepriormap = slam.usepriormap
+        self.onlyvis = slam.onlyvis
         self.guide_sample = slam.guide_sample
         self.use_prior = slam.use_prior
         self.less_sample_space = slam.less_sample_space # 是否在 surface 附近区间多重采样,对应不同的render_batch
@@ -175,6 +177,12 @@ class Tracker(object):
     def run(self):
         device = self.device
         self.c = {}
+        # 对于只是用载入的地图来评估的话 一次性的吧 c 和 decoders 赋值好 然后不再需要update_para_from_mapping()
+        if self.usepriormap and self.onlyvis:
+            self.decoders = copy.deepcopy(self.shared_decoders).to(self.device)
+            for key, val in self.shared_c.items():
+                val = val.clone().to(self.device)
+                self.c[key] = val
         if self.verbose:
             pbar = self.frame_loader
         else:
@@ -198,13 +206,15 @@ class Tracker(object):
                 # initiate mapping every self.every_frame frames 这里增加 对于kf都tracking 否则 mapping那边更是receive不到
                 if self.use_prior:
                     if idx > 0 and (idx % self.every_frame == 1 or self.every_frame == 1 or ((idx-1) in self.frame_reader.prior_poses.keys())):
-                        while self.mapping_idx[0] != idx-1:
-                            time.sleep(0.1)
+                        if (not self.usepriormap) and (not self.onlyvis): # 此时就没有mapping线程
+                            while self.mapping_idx[0] != idx-1:
+                                time.sleep(0.1)
                         pre_c2w = self.estimate_c2w_list[idx-1].to(device)
                 else:
                     if idx > 0 and (idx % self.every_frame == 1 or self.every_frame == 1):
-                        while self.mapping_idx[0] != idx-1:
-                            time.sleep(0.1)
+                        if (not self.usepriormap) and (not self.onlyvis):
+                            while self.mapping_idx[0] != idx-1:
+                                time.sleep(0.1)
                         pre_c2w = self.estimate_c2w_list[idx-1].to(device)
             elif self.sync_method == 'loose':
                 # mapping idx can be later than tracking idx is within the bound of
@@ -214,8 +224,9 @@ class Tracker(object):
             elif self.sync_method == 'free':
                 # pure parallel, if mesh/vis happens may cause inbalance
                 pass
-
-            self.update_para_from_mapping()
+            
+            if (not self.usepriormap) and (not self.onlyvis):
+                self.update_para_from_mapping()
 
             if self.verbose:
                 print(Fore.MAGENTA)
@@ -236,6 +247,15 @@ class Tracker(object):
                 #     self.visualizer.vis(
                 #         idx, 0, gt_depth, gt_color, c2w, self.c, self.decoders,
                 #         selecti=self.slecti, selectj=self.slectj)
+                
+                # 这里进行 vis 的代码
+                
+                if self.usepriormap and self.onlyvis:
+                    if idx % self.every_frame == 0 or idx==self.n_img-1:
+                        self.renderer.evavis_img(self.c, self.decoders, idx, c2w, self.device, 
+                                                stage='color', 
+                                                gt_depth=gt_depth,
+                                                gt_color=gt_color) 
 
             else:
                 gt_camera_tensor = get_tensor_from_camera(gt_c2w)
@@ -302,6 +322,7 @@ class Tracker(object):
                 c2w = get_camera_from_tensor(
                     candidate_cam_tensor.clone().detach())
                 c2w = torch.cat([c2w, bottom], dim=0)
+            
             self.estimate_c2w_list[idx] = c2w.clone().cpu()
             self.gt_c2w_list[idx] = gt_c2w.clone().cpu()
             pre_c2w = c2w.clone()

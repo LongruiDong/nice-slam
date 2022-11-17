@@ -17,16 +17,26 @@
 #     # nohup ./eval_replica.sh >log/eval_replica.log 2>&1 &
 # done
 
-CUDA_VISIBLE_DEVICES=3 nohup python -W ignore run.py configs/Replica/office1gt-spcd-KL.yaml >log/office1gt-spcd-KL.log 2>&1 &
+# CUDA_VISIBLE_DEVICES=3 nohup python -W ignore run.py configs/Replica/office1gt-vismy.yaml >log/office1gt-vis.log 2>&1 &
 
-CUDA_VISIBLE_DEVICES=3 nohup python -W ignore run.py configs/Replica/office2gt-spcd-KL.yaml >log/office2gt-spcd-KL.log 2>&1 &
+# CUDA_VISIBLE_DEVICES=3 nohup python -W ignore run.py configs/Replica/office2gt-vismy.yaml >log/office2gt-vis.log 2>&1 &
 
-CUDA_VISIBLE_DEVICES=0 nohup python -W ignore run.py configs/Replica/office3gt-spcd-KL.yaml >log/office3gt-spcd-KL.log 2>&1 &
+# # CUDA_VISIBLE_DEVICES=3 nohup python -W ignore run.py configs/Replica/room0gt-vismy.yaml >log/room0gt-vis.log 2>&1 &
 
-CUDA_VISIBLE_DEVICES=1 nohup python -W ignore run.py configs/Replica/office4gt-spcd-KL.yaml >log/office4gt-spcd-KL.log 2>&1 &
+# # CUDA_VISIBLE_DEVICES=2 nohup python -W ignore run.py configs/Replica/office3gt-vismy.yaml >log/office3gt-vismy.log 2>&1 &
 
-# CUDA_VISIBLE_DEVICES=1 nohup python -W ignore run.py configs/Replica/room0gt-spcd-KL.yaml >log/room0gt-spcd-KL.log 2>&1 &
+CUDA_VISIBLE_DEVICES=2 nohup python -W ignore run.py configs/Replica/office4gt-vismy.yaml >log/office4gt-vismy.log 2>&1 &
 
-# CUDA_VISIBLE_DEVICES=2 nohup python -W ignore run.py configs/Replica/room1gt-spcd-KL.yaml >log/room1gt-spcd-KL.log 2>&1 &
+# CUDA_VISIBLE_DEVICES=2 nohup python -W ignore run.py configs/Replica/room1gt-vismy.yaml >log/room1gt-vis.log 2>&1 &
 
-# CUDA_VISIBLE_DEVICES=0 nohup python -W ignore run.py configs/Replica/room2gt-spcd-KL.yaml >log/room2gt-spcd-KL.log 2>&1 & 
+
+# CUDA_VISIBLE_DEVICES=0 python -W ignore run.py configs/Replica/room0gt-vismy.yaml >log/room0gt-vis.log 2>&1 &
+
+CUDA_VISIBLE_DEVICES=1 nohup python -W ignore run.py configs/Replica/room2gt-vismy.yaml >log/room2gt-vis.log 2>&1 &
+
+# CUDA_VISIBLE_DEVICES=2 python -W ignore run.py configs/Replica/office3gt-vismy.yaml >log/office3gt-vismy.log 2>&1 &
+# CUDA_VISIBLE_DEVICES=1 nohup python -W ignore run.py configs/Replica/room0gt-vismy.yaml >log/room0gt-vismy.log 2>&1 &
+
+# CUDA_VISIBLE_DEVICES=2 nohup python -W ignore run.py configs/Replica/room1gt-vismy.yaml >log/room1gt-vismy.log 2>&1 &
+
+# CUDA_VISIBLE_DEVICES=0 nohup python -W ignore run.py configs/Replica/room2gt-vismy.yaml >log/room2gt-vismy.log 2>&1 & 

@@ -2,6 +2,9 @@ from copy import copy
 import torch, os
 from src.common import get_rays, raw2outputs_nerf_color, sample_pdf, get_rays_by_weight
 # from src.utils.Visualizer import Visualizer.
+# import matplotlib.pyplot as plt
+import cv2
+import numpy as np
 # -*- coding:utf-8 -*-
 
 class Renderer(object):
@@ -25,7 +28,14 @@ class Renderer(object):
         self.nice = slam.nice
         self.bound = slam.bound
         self.guide_sample = slam.guide_sample
-
+        
+        # 建立用于评估可视化的文件夹
+        self.vis_d_dir = os.path.join(slam.output, 'vis_d') # 保存估计的depth
+        self.vis_c_dir = os.path.join(slam.output, 'vis_c') # 保存估计的color
+        self.vis_gtd_dir = os.path.join(slam.output, 'vis_gtd') #保存gt d 的颜色可视化
+        os.makedirs(self.vis_d_dir, exist_ok=True)
+        os.makedirs(self.vis_c_dir, exist_ok=True)
+        os.makedirs(self.vis_gtd_dir, exist_ok=True)
         self.H, self.W, self.fx, self.fy, self.cx, self.cy = slam.H, slam.W, slam.fx, slam.fy, slam.cx, slam.cy
 
     def eval_points(self, p, decoders, c=None, stage='color', device='cuda:0'):
@@ -677,3 +687,121 @@ class Renderer(object):
         # 或者返回 占据概率的值  两者的值最后abs sum后不同吧
         sigma = torch.sigmoid(10*raw[:, -1])
         return sigma
+    
+    def evavis_img(self, c, decoders, idx, c2w, device, stage, gt_depth=None, gt_color=None):
+        """
+        For result visualization and save pdf, optional compute PSNR depth & L1 loss
+        Renders out depth, and color images.
+
+        Args:
+            c (dict): feature grids.
+            decoders (nn.module): decoders.
+            c2w (tensor): camera to world matrix of current frame.
+            device (str): device name to compute on.
+            stage (str): query stage.
+            gt_depth (tensor, optional): sensor depth image. Defaults to None.
+            gt_color (tensor, optional): gt color, for PSNR 计算
+
+        Returns:
+            depth (tensor, H*W): rendered depth image.
+            // uncertainty (tensor, H*W): rendered uncertainty image.
+            color (tensor, H*W*3): rendered color image.
+        """
+        with torch.no_grad():
+            H = self.H
+            W = self.W
+            rays_o, rays_d = get_rays(
+                H, W, self.fx, self.fy, self.cx, self.cy,  c2w, device)
+            rays_o = rays_o.reshape(-1, 3)
+            rays_d = rays_d.reshape(-1, 3)
+
+            depth_list = []
+            uncertainty_list = []
+            color_list = []
+            weights_list = []
+            sigma_loss_list = []
+            z_vals_list = []
+
+            ray_batch_size = self.ray_batch_size
+            if gt_depth is not None:
+                gt_depth = gt_depth.reshape(-1)
+
+            for i in range(0, rays_d.shape[0], ray_batch_size):
+                rays_d_batch = rays_d[i:i+ray_batch_size]
+                rays_o_batch = rays_o[i:i+ray_batch_size]
+                if gt_depth is None:
+                    if self.less_sample_space:
+                        ret = self.render_batch_ray_tri(
+                            c, decoders, rays_d_batch, rays_o_batch, device, stage, gt_depth=None)
+                    else:
+                        ret = self.render_batch_ray(
+                            c, decoders, rays_d_batch, rays_o_batch, device, stage, gt_depth=None)
+                else:
+                    gt_depth_batch = gt_depth[i:i+ray_batch_size]
+                    if self.less_sample_space: #  or (vis_depth is not None)  这里选择是否 用depth引导
+                        ret = self.render_batch_ray_tri(
+                            c, decoders, rays_d_batch, rays_o_batch, device, stage, gt_depth=gt_depth_batch if self.guide_sample else None)
+                    else:
+                        ret = self.render_batch_ray(
+                            c, decoders, rays_d_batch, rays_o_batch, device, stage, gt_depth=gt_depth_batch if self.guide_sample else None)
+
+                depth, uncertainty, color, weights, sigma_loss, z_vals = ret # 这里的输出不同 但sigma_loss可能仍是None
+                depth_list.append(depth.double())
+                uncertainty_list.append(uncertainty.double())
+                color_list.append(color)
+                weights_list.append(weights)
+                sigma_loss_list.append(sigma_loss)
+                z_vals_list.append(z_vals)
+                    
+
+            depth = torch.cat(depth_list, dim=0)
+            uncertainty = torch.cat(uncertainty_list, dim=0)
+            color = torch.cat(color_list, dim=0)
+            weights = torch.cat(weights_list, dim=0)
+            
+            z_vals = torch.cat(z_vals_list, dim=0)
+            
+
+            depth = depth.reshape(H, W)
+            uncertainty = uncertainty.reshape(H, W)
+            color = color.reshape(H, W, 3)
+            
+            # 画图并保存
+            depth_np = depth.detach().cpu().numpy()
+            color_np = color.detach().cpu().numpy()
+            gt_depth = gt_depth.reshape(H, W) # 别忘了恢复
+            gt_depth_np = gt_depth.detach().cpu().numpy()
+            gt_color_np = gt_color.detach().cpu().numpy()
+            
+            # 进行psnr depth l1 loss 的计算 to do 
+            
+            # 分别画 gt depth est_depth est_color
+            # fig1, axs1 = plt.subplots(1, 1)
+            # fig2, axs2 = plt.subplots(1, 1)
+            # fig3, axs3 = plt.subplots(1, 1)
+            
+            # 为了保存为图片 数据转换
+            color_np = (color_np*255).astype(np.uint8)
+            gt_color_np = (gt_color_np*255).astype(np.uint8)
+            color_np = np.clip(color_np, 0, 255)
+            color_np = cv2.cvtColor(color_np, cv2.COLOR_BGR2RGB) # 
+            gt_color_np = np.clip(gt_color_np, 0, 255)
+            # 深度图 增加颜色映射
+            depth_np = depth_np/np.max(depth_np)*255
+            depth_np = np.clip(depth_np, 0, 255).astype(np.uint8)
+            depth_np = cv2.applyColorMap(depth_np, cv2.COLORMAP_PLASMA) # COLORMAP_PLASMA COLORMAP_JET
+            
+            gt_depth_np = gt_depth_np/np.max(gt_depth_np)*255
+            gt_depth_np = np.clip(gt_depth_np, 0, 255).astype(np.uint8)
+            gt_depth_np = cv2.applyColorMap(gt_depth_np, cv2.COLORMAP_PLASMA)
+            
+            prefix = f'{idx:05d}'
+            est_d_file = os.path.join(self.vis_d_dir, prefix+'.png')
+            gt_d_file = os.path.join(self.vis_gtd_dir, prefix+'.png')
+            est_c_file = os.path.join(self.vis_c_dir, prefix+'.jpg')
+            print('[visonly], save est depth at {}'.format(est_d_file))
+            cv2.imwrite(est_d_file, depth_np)
+            cv2.imwrite(est_c_file, color_np)
+            cv2.imwrite(gt_d_file, gt_depth_np)
+            
+            return depth, uncertainty, color

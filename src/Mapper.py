@@ -26,6 +26,8 @@ class Mapper(object):
         self.args = args
         self.coarse_mapper = coarse_mapper #coarse level的优化
         self.rgbonly = slam.rgbonly
+        self.usepriormap = slam.usepriormap
+        self.onlyvis = slam.onlyvis
         self.guide_sample = slam.guide_sample
         self.use_prior = slam.use_prior
         self.idx = slam.idx

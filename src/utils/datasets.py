@@ -256,7 +256,7 @@ class BaseDataset(Dataset):
                 # pose_nan = torch.full(size=pose.shape, fill_value=float('nan')).to(self.device)
                 return index, color_data.to(self.device), pose_nan, pose.to(self.device), pose_nan, pose_nan, prior_weight.to(self.device)
         else: # 正常模式
-            return index, color_data.to(self.device), depth_data.to(self.device), pose.to(self.device), pose_nan, pose_nan, prior_weight.to(self.device)
+            return index, color_data.to(self.device), depth_data.to(self.device), pose.to(self.device), pose_nan, pose_nan, pose_nan
                     
 
     def createpcd(self, w2c_mats, skip = 30):
@@ -312,7 +312,10 @@ class Replica(BaseDataset):
         # dnet预测的不确定性路径
         self.stdv_paths = sorted(
                 glob.glob(f'{self.input_folder}/dstdpred/dstdv*.npy'))
-        self.n_img = len(self.color_paths) # 301 len(self.color_paths) #测试观测不够时 的fusion效果 1000 16 init
+        if cfg['data']['endnum']>0:
+            self.n_img = int(cfg['data']['endnum'])
+        else:
+            self.n_img = len(self.color_paths) # 301 len(self.color_paths) #测试观测不够时 的fusion效果 1000 16 init
         print('imagelen: {}'.format(self.n_img))
         self.load_poses(f'{self.input_folder}/traj.txt')
         # 增加选择是否载入 作为先验的kf pose 的 位姿 注意 是tum 格式 c2w

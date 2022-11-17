@@ -30,6 +30,8 @@ class NICE_SLAM():
         self.nice = args.nice
         # 这些变量来自与yaml哪里
         # 和 prior coarse geometry 有关的设置参数
+        self.usepriormap = cfg['usepriormap'] # 使用之前建好的grid以及color decoder
+        self.onlyvis = cfg['onlyvis'] # 是否只进行可视化
         self.use_prior = cfg['use_prior'] # 是否载入 est depth 作为 gt deptj
         self.guide_sample = cfg['guidesample']
         self.less_sample_space = cfg['rendering']['less_sample_space'] # 是否在 surface 附近区间多重采样,对应不同的render_batch
@@ -60,9 +62,14 @@ class NICE_SLAM():
 
         self.load_bound(cfg) 
         if self.nice:
-            self.load_pretrain(cfg)
-            self.grid_init(cfg)
+            if self.usepriormap:
+                self.load_priormap(cfg)
+            else:
+                self.load_pretrain(cfg)
+                self.grid_init(cfg)
         else:
+            if self.usepriormap:
+                pass
             self.shared_c = {}
 
         # need to use spawn
@@ -277,7 +284,31 @@ class NICE_SLAM():
         # print('grid_color: \n', val_shape)
 
         self.shared_c = c
-
+    
+    def load_priormap(self, cfg):
+        """
+        从之前已经建立好的map文件 ckpt 载入需要的 grid_feature 和 所有decoder 特别是color decoder
+        反正另外3个decodera是pretrained
+        Args:
+            cfg (dict): parsed config dict
+        """
+        ckpt_path = cfg['tracking']['priormap'] # yaml设置好的ckpt/中最后一个文件
+        print('Get ckpt :', ckpt_path)
+        ckpt = torch.load(ckpt_path, map_location=cfg['mapping']['device'])
+        print('Load prior map ckpt done !')
+        # 直接拿出 grid tmp_c
+        self.shared_c = ckpt['c']
+        # 需要更改 c里 各level requires_grad 属性为valse
+        for key, val in self.shared_c.items():
+            val.requires_grad = False
+            self.shared_c[key] = val.cpu()
+        print('[Debug] grid_color: \n',self.shared_c['grid_color'].shape)
+        # # 再读入 几何decoder
+        # self.load_pretrain(cfg)
+        # 一次性读入去全部 
+        self.shared_decoders.load_state_dict(ckpt['decoder_state_dict'])
+        print('Load prior decoder all state_dict done !')
+    
     def tracking(self, rank):
         """
         Tracking Thread.
@@ -285,12 +316,12 @@ class NICE_SLAM():
         Args:
             rank (int): Thread ID.
         """
-
-        # should wait until the mapping of first frame is finished 初始化
-        while (1):
-            if self.mapping_first_frame[0] == 1:
-                break
-            time.sleep(1)
+        if (not self.usepriormap) and (not self.onlyvis): # 若只是为了可视化就不等了
+            # should wait until the mapping of first frame is finished 初始化
+            while (1):
+                if self.mapping_first_frame[0] == 1:
+                    break
+                time.sleep(1)
 
         self.tracker.run()
 
@@ -324,7 +355,10 @@ class NICE_SLAM():
             if rank == 0:
                 p = mp.Process(target=self.tracking, args=(rank, ))
             elif rank == 1:
-                p = mp.Process(target=self.mapping, args=(rank, ))
+                if self.usepriormap and self.onlyvis:
+                    continue
+                else: # 当使用已有地图 且只只进行可视化时 就不开启mapping线程了！
+                    p = mp.Process(target=self.mapping, args=(rank, ))
             elif rank == 2:
                 if self.coarse and (not self.rgbonly): # (not self.rgbonly) False
                     p = mp.Process(target=self.coarse_mapping, args=(rank, )) # coarse mapping独立出来线程

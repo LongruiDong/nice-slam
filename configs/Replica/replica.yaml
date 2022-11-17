@@ -1,5 +1,7 @@
 dataset: 'replica'
 scale: 1
+usepriormap: True # 增加选项 若为true表示只是定位 载入给定地图 false即为原nice-slam
+onlyvis: True # 增加选项 在载入给定地图的情况下 只是track1个线程进行可视化并保存  不再使用其他线程
 prior_scale: 1 # 用于prior 的pose 和 depth map 的尺度和 Gt 的对齐因子 这里default 1
 use_prior: True # 是否载入作为先验的 pose 和depth
 coarse: False # False True
