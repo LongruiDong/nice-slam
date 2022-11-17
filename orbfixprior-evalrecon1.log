@@ -1,0 +1,28 @@
+now do Replica-office0 	 
+evaluating ddl_output/Replica_prior/office0orbfix-sp-5hz-KLoss-stagecolor/mesh/final_mesh_eval_rec.ply
+accuracy:  31.899674000733274
+completion:  6.974272169645378
+completion ratio:  56.0685
+Depth L1:  15.65091758966446
+now do Replica-office1 	 
+ddl_output/Replica_prior/office1orbfix-sp-5hz-KLoss-stagecolor not exist, skip! 
+now do Replica-office2 	 
+evaluating ddl_output/Replica_prior/office2orbfix-sp-5hz-KLoss-stagecolor/mesh/final_mesh_eval_rec.ply
+accuracy:  39.489093592830315
+completion:  35.069391717605015
+completion ratio:  19.137999999999998
+Depth L1:  80.77229857444763
+now do Replica-office3 	 
+ddl_output/Replica_prior/office3orbfix-sp-5hz-KLoss-stagecolor not exist, skip! 
+now do Replica-office4 	 
+evaluating ddl_output/Replica_prior/office4orbfix-sp-5hz-KLoss-stagecolor/mesh/final_mesh_eval_rec.ply
+accuracy:  21.902505006964162
+completion:  11.677212866804632
+completion ratio:  31.424000000000003
+Depth L1:  34.07284617424011
+now do Replica-room0 	 
+ddl_output/Replica_prior/room0orbfix-sp-5hz-KLoss-stagecolor not exist, skip! 
+now do Replica-room1 	 
+ddl_output/Replica_prior/room1orbfix-sp-5hz-KLoss-stagecolor not exist, skip! 
+now do Replica-room2 	 
+ddl_output/Replica_prior/room2orbfix-sp-5hz-KLoss-stagecolor not exist, skip! 

@@ -1,0 +1,24 @@
+now do Replica-office0 	 
+evaluating ddl_output/Replica_prior/office0orbfix/mesh/final_mesh_eval_rec.ply
+accuracy:  38.747446116865085
+completion:  34.919960474744855
+completion ratio:  15.204500000000001
+Depth L1:  83.38040709495544
+now do Replica-office1 	 
+evaluating ddl_output/Replica_prior/office1orbfix/mesh/final_mesh_eval_rec.ply
+accuracy:  24.769710636473366
+completion:  19.12388552240166
+completion ratio:  29.0645
+Depth L1:  38.20349872112274
+now do Replica-office2 	 
+ddl_output/Replica_prior/office2orbfix not wxist, skip! 
+now do Replica-office3 	 
+ddl_output/Replica_prior/office3orbfix not wxist, skip! 
+now do Replica-office4 	 
+ddl_output/Replica_prior/office4orbfix not wxist, skip! 
+now do Replica-room0 	 
+ddl_output/Replica_prior/room0orbfix not wxist, skip! 
+now do Replica-room1 	 
+ddl_output/Replica_prior/room1orbfix not wxist, skip! 
+now do Replica-room2 	 
+ddl_output/Replica_prior/room2orbfix not wxist, skip! 

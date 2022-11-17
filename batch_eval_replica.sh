@@ -10,17 +10,17 @@ out_dir=$1 # /Replica
 suffix=$2
 
 evalset=(
-    office0
+    # office0
     office1
-    office2
-    office3
-    office4
-    room0
+    # office2
+    # office3
+    # office4
+    # room0
     room1
-    room2
+    # room2
 )
 
-for ((i=0; i<8; i++)); do
+for ((i=0; i<2; i++)); do
     printf "now do Replica-%s \t \n" "${evalset[$i]}"
     GT_MESH=${gt_dir}/${evalset[$i]}.ply
     OUTPUT_FOLDER=${out_dir}/${evalset[$i]}${suffix}

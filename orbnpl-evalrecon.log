@@ -1,0 +1,24 @@
+now do Replica-office0 	 
+evaluating ddl_output/Replica_prior/office0orb-npl/mesh/final_mesh_eval_rec.ply
+accuracy:  81.92505778514382
+completion:  156.22585283576632
+completion ratio:  0.2625
+Depth L1:  151.27649307250977
+now do Replica-office1 	 
+evaluating ddl_output/Replica_prior/office1orb-npl/mesh/final_mesh_eval_rec.ply
+accuracy:  56.418357814427964
+completion:  69.63617403560562
+completion ratio:  1.3074999999999999
+Depth L1:  99.51594471931458
+now do Replica-office2 	 
+ddl_output/Replica_prior/office2orb-npl not exist, skip! 
+now do Replica-office3 	 
+ddl_output/Replica_prior/office3orb-npl not exist, skip! 
+now do Replica-office4 	 
+ddl_output/Replica_prior/office4orb-npl not exist, skip! 
+now do Replica-room0 	 
+ddl_output/Replica_prior/room0orb-npl not exist, skip! 
+now do Replica-room1 	 
+ddl_output/Replica_prior/room1orb-npl not exist, skip! 
+now do Replica-room2 	 
+ddl_output/Replica_prior/room2orb-npl not exist, skip! 

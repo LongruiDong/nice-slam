@@ -85,10 +85,18 @@ GT_MESH=Datasets/Replica/cull_replica_mesh/office0.ply
 # # output/Replica/office0gt-nodloss-pix4096-f1500-it1k
 # python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/final_mesh_eval_rec.ply --gt_mesh $GT_MESH -2d -3d
 
-OUTPUT_FOLDER=ddl_output/Replica_prior/office0gt-5hz-lss
-# output/Replica_prior/office0gt-resize2-5hz-lss
-# output/Replica/office0gt-nodloss-pix1000-f4k-it4k
+OUTPUT_FOLDER=ddl_output/Replica_ablate/office0gt-only-spd-wowt
+# output/Replica_prior/office0gt-sp-resize2-5hz-spcd-kl-regu
+# # ddl_output/Replica_prior/office0gt-5hz-lss
+# # output/Replica_prior/office0gt-resize2-5hz-lss
+# # output/Replica/office0gt-nodloss-pix1000-f4k-it4k
 python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/final_mesh_eval_rec.ply --gt_mesh $GT_MESH -2d -3d
+
+# OUTPUT_FOLDER=output/Replica_pose/office0orb
+# python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/final_mesh_eval_rec.ply --gt_mesh $GT_MESH -2d -3d
+
+# OUTPUT_FOLDER=output/Replica_pose/office0orb-sp-resize2-5hz-KLoss-stagecolor
+# python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/final_mesh_eval_rec.ply --gt_mesh $GT_MESH -2d -3d
 
 # OUTPUT_FOLDER=/home/dlr/Project/NeuralRecon-W/results/replica/{epoch:d}_epoch=0-step=29999
 # python src/tools/eval_recon.py --rec_mesh $OUTPUT_FOLDER/mesh/extracted_mesh_res_256_radius_1.0_colored-clip.ply --gt_mesh $GT_MESH -3d -2d

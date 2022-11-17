@@ -1,0 +1,12 @@
+now do Replica-office1 	 
+evaluating ddl_output/Replica_prior/office1orbfix/mesh/final_mesh_eval_rec.ply
+accuracy:  23.15737135533156
+completion:  15.367080320298058
+completion ratio:  28.8555
+Depth L1:  34.722208976745605
+now do Replica-room1 	 
+evaluating ddl_output/Replica_prior/room1orbfix/mesh/final_mesh_eval_rec.ply
+accuracy:  15.738904232050588
+completion:  10.331415248513567
+completion ratio:  42.1165
+Depth L1:  16.16920828819275
