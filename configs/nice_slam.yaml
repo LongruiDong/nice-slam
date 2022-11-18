@@ -132,6 +132,7 @@ cam:
   crop_edge: 0
   depth_trunc: -1 # add for limit bound discard larger depth
   sky_depth: -1
+  dstdv_cut_max: -1  # 对于office 实际最大值在0.35左右 0.25 0.2 0.15
 rendering:
   N_samples: 32 #N_strat
   N_surface: 16 #在深度周围
@@ -141,6 +142,7 @@ rendering:
 data:
   dim: 3
   wnoise: False #使用噪声深度为输入
+  endnum: -1 # 实际那前#帧 若为-1 则默认全部 
 model:
   c_dim: 32
   coarse_bound_enlarge: 2

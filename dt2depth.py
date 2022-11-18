@@ -565,7 +565,7 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
     scale = float(s) # float(1./s)
     print('est map should x {}'.format(scale))
 
-    return 0
+    # return 0
     # 投影的话还是要有每帧位姿 再跑前面的orbslam 插值 不准 就先只用kf的吧
     kf_orb_pose = copy.deepcopy(estpose)
     print('load orb-mono pose(tum): {} \n size: {}, {}'.format(kftrajfile, kf_orb_pose.shape[0], kf_orb_pose.shape[1]))

@@ -1,0 +1,42 @@
+inherit_from: configs/TUM_RGBD/tum.yaml
+prior_scale: 1.21 # 用于prior 的pose 和 depth map 的尺度和 Gt 的对齐因子
+use_prior: True # 是否载入作为先验的 pose 和depth
+rgbonly: True # 增加选项 是否为单目模式 即无depth loss
+guidesample: True # 增加选项 测试深度引导对在线的作用
+tracking:
+  gt_camera: True #? True False
+  prior_camera: False # 增加选项track就用先验位姿做初值
+mapping:
+  bound: [[-4.6,2.6],[-3.3,3.2],[-2.0,4.9]]
+  marching_cubes_bound: [[-2.6,1.1],[-1.5,1.5],[-0.6,2.4]]
+  every_frame: 5 #? mapping的频率 改为5
+  BA: False # True #mapping是否一同优化位姿 False
+  iters_first: 1500 # 1500| 2000 4000
+  iters: 60 # 测试增大迭代次数 60| 100 120 600 1000 4000
+rendering:
+  N_samples: 32 #N_strat
+  N_surface: 32 #在深度周围 16| 0 
+  N_importance: 32 #为啥是0 nerf里是有这一步 hirecial 采样吧 12(imap*) 16(总数和原始保持一致) 32
+  lindisp: False
+  perturb: 0.0 
+  less_sample_space: True # 是否用粗糙深度来在surface附近区间内多重采样
+  up_sample_steps: 2 # 在表面附件多重采样的次数 暂时每次16个
+  emperical_range: 0.15 # 增加参数控制 surface 的range 比例 0.05| 0.1 0.15
+  use_KL_loss: True # 是否使用ds-nerf的sigma loss True
+  # https://github.com/dunbar12138/DSNeRF/blob/d9deb70ac1464348aebbe5e32fc98aeca1920f70/run_nerf.py#L527
+  raw_noise_std: 1.0 # 'std dev of noise added to regularize sigma_a output, 1e0 recommended' 只是对于nerf nice-slam还用不上
+  sigma_lambda: 0.01 # 权重因子 used for KL loss 0.1 
+data:
+  input_folder: Datasets/TUM_RGBD/rgbd_dataset_freiburg1_desk
+  output: output/TUM_RGBD/fr1deskgt-my
+  prior_folder: /home/dlr/Project1/ORB_SLAM2_Enhanced/result/tum/fr1desk
+cam:  #intrinsic is different per scene in TUM
+  H: 480 
+  W: 640 
+  fx: 517.3
+  fy: 516.5
+  cx: 318.6
+  cy: 255.3
+  crop_edge: 8 # 先都用全图 得到深度先验
+  crop_size: [384,512]
+  distortion: [0.2624, -0.9531, -0.0054, 0.0026, 1.1633]

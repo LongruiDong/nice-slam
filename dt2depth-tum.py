@@ -37,7 +37,7 @@ from numba import jit
 # 用来分析时间
 import line_profiler as lp
 
-# fps = 10 # 生成伪时间 但要根据设置的帧率
+# fps = 10 # 生成伪时间 但要根据设置的帧率 for tum 32.0
 
 def align(model,data,calc_scale=True):
     """Align two trajectories using the method of Horn (closed-form).
@@ -477,7 +477,7 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
     
     mapptsfile = os.path.join(orbmapdir, 'mappts.txt')
     kftrajfile = os.path.join(orbmapdir, 'KeyFrameTrajectory.txt')
-    gttrajfile = os.path.join(cfg['data']['input_folder'], 'traj.txt')
+    gttrajfile = os.path.join(cfg['data']['input_folder'], 'groundtruth.txt') # tum数据
     kptdir = os.path.join(orbmapdir, 'keypt')
     
     outdir = os.path.join(orbmapdir, 'prior') # 用于保存所有结果
@@ -508,6 +508,14 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
             # 列表的最后一项 存储误差
             dic_mappts[int(raw[0])].append(float(raw[-1]))
     # (mapptidx:[xyz, obsarr])
+    # 再来计算整体误差的和 以及各点的不确定性
+    geo_err = np.array([ dic_mappts[key][2] for key in dic_mappts.keys() ])
+    err_mean = np.mean(geo_err)
+    for key in dic_mappts.keys():
+        va = dic_mappts[key]
+        err = va[2]
+        weight = 2 * np.exp(-(err/err_mean)**2) # * fact # (0,1] 之间的值 ds-nerf 中是x2 按下不表 5
+        dic_mappts[key].append(weight) # 再补充一个列表元素 保存weight
     xyzs = np.stack(xyzs, 0) # (n,3)
     
     pcd = o3d.geometry.PointCloud()
@@ -527,18 +535,20 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
     # inlier 的边界：
     print('inlier pcd box: \n', inlier_cloud.get_axis_aligned_bounding_box())
     # return -1
-    estpose = np.loadtxt(kftrajfile) # 本身是kf pose
+    estpose = np.loadtxt(kftrajfile, dtype=np.unicode_) # 本身是kf pose 时间其实对齐到ass的图像时间了
     print('load pred pose from {}'.format(kftrajfile))
-    # 转换格式到 tum_gt 并保存
-    gtpose, _ = load_traj(gttrajfile, save=os.path.join(cfg['data']['input_folder'], 'tum_gt.txt'), firstI=False)
+    # tum 的gt  不用保存
+    # gtpose, _ = load_traj(gttrajfile)
+    gtpose = np.loadtxt(gttrajfile, dtype=np.unicode_, skiprows=1) # 查看
     print('load gt traj from {}'.format(gttrajfile))
-    # 转变为 字典 key 为 时间戳
+    # 转变为 字典 key 为 时间戳  对于tum  两者时间不同 需要 associate
     n_gt = gtpose.shape[0]
     n_est = estpose.shape[0]
     print('gt pose: ', gtpose.shape)
     print('est pose: ', estpose.shape)
-    dic_gt = dict([(gtpose[i, 0], gtpose[i, 1:]) for i in range(n_gt)])
-    dic_est = dict([(float(format(estpose[i, 0], '.1f')), estpose[i, 1:]) for i in range(n_est)])
+    # 时间戳  key 都是原数字转的float 原位数
+    dic_gt = dict([(float(format(float(gtpose[i, 0]), '.6f')), gtpose[i, 1:]) for i in range(n_gt)])
+    dic_est = dict([(float(format(float(estpose[i, 0]), '.6f')), estpose[i, 1:]) for i in range(n_est)])
     
     matches = associate(dic_gt, dic_est)
     if len(matches) < 2:
@@ -570,13 +580,16 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
     # 投影的话还是要有每帧位姿 再跑前面的orbslam 插值 不准 就先只用kf的吧
     kf_orb_pose = copy.deepcopy(estpose)
     print('load orb-mono pose(tum): {} \n size: {}, {}'.format(kftrajfile, kf_orb_pose.shape[0], kf_orb_pose.shape[1]))
-    dic_est = dict([(int(float(format(kf_orb_pose[i, 0], '.1f'))*10), kf_orb_pose[i, 1:]) for i in range(n_est)]) # key 就是 frame id
+    dic_est = dict([(float(format(float(kf_orb_pose[i, 0]), '.6f')), kf_orb_pose[i, 1:]) for i in range(n_est)]) # key 就是 对应的rgb 时间戳 6位小数
     
-    # 逐帧看 image
+    # 逐帧看 image 这里tum读入的数据 color_paths 应该和 之前保存的associations.txt一致
     
     frame_reader = get_dataset(cfg, args, 1)
-    n_img = frame_reader.__len__()
-    K, H, W = update_cam(cfg) # 得到内参矩阵
+    saveass_path = os.path.join(frame_reader.input_folder, 'associations.txt')
+    asslist = np.loadtxt(saveass_path, dtype=np.unicode_) # 查看
+    n_img = frame_reader.__len__() # 应该和 associations.txt 一致
+    assert n_img==asslist.shape[0], 'n_img != associalition len'
+    K, H, W = update_cam(cfg) # 得到内参矩阵 注意此时 yaml里应该不对图片 裁剪!
     invK = np.linalg.inv(K)
     DEPTHSCALE = float(frame_reader.png_depth_scale) # cfg['cam']['png_depth_scale']
     print('gt depth scale: {}'.format(DEPTHSCALE))
@@ -586,30 +599,36 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
     # for idx, gt_color, _, _ in frame_loader:
     for idx in range (n_img):
         # idx = idx.item()
-        if (not idx in dic_est.keys()):
-            continue # 非kf 暂时不投影
-        # if idx != 813: # 813 > 0
-        #     continue # break
-        # # if idx == 0: # 813 > 0
-        # #     continue # break
-        # if idx > 813: # 813 > 0 45
-        #     break # break
         rgbpath = frame_reader.color_paths[idx]
+        assrgb = asslist[idx, 0]
+        # 读取此张图的时间戳
+        strrgbtime = rgbpath.split('/')[-1][:-4] # str 完整时间戳 保存时用的名字 prefix
+        assert strrgbtime==assrgb, 'rgb should match association' # 确认和之前ass一致
+        rgbtime = float(format(float(strrgbtime), '.6f')) # 6位小数 数字 和 dic_est 里的key 对应
+        if (not rgbtime in dic_est.keys()):
+            continue # 非kf 暂时不投影
+        
         color_data = cv2.imread(rgbpath) # h,w,3 unit8
-        print('process frame {}'.format(rgbpath))
+        print('process frame {}'.format(strrgbtime)) # 应该和 KeyFrametrjetory 的首列一致
         color_data = cv2.cvtColor(color_data, cv2.COLOR_BGR2RGB) 
         gtdepthpath = frame_reader.depth_paths[idx]
+        strdptime = gtdepthpath.split('/')[-1][:-4]
+        assdepth = asslist[idx, 2]
+        assert strdptime==assdepth, 'depth should match association'
         depth_data = cv2.imread(gtdepthpath, cv2.IMREAD_UNCHANGED)
         depth_data = depth_data.astype(np.float32) / DEPTHSCALE
-        # 拿出最大值
+        # 拿出最大值 of gt depth
         max_depth = np.max(depth_data) # 原尺度 还需要变换
-        max_gtdepth = max_depth/scale
+        max_gtdepth = max_depth/scale # 同尺度下 深度不能超过此值 
         #Rectangle to be used with Subdiv2D
         size = color_data.shape # h, w, 3
         rect = (0,0,size[1],size[0])
-        # 读入 ####.txt
+        # 读入 ####.txt idx 是 ass中 普通帧index
         kffile = os.path.join(kptdir, "%04d.txt" % idx)
         # kptid u v 3dpid(-1表示没有对应) x y z
+        tum_i = np.loadtxt(kffile, max_rows=1) # , fmt='%.1f %.6f %.6f %.6f %.6f %.6f %.6f %.6f'
+        # 验证 此kpt file 的时间就是 rgb time!
+        assert float(format(tum_i[0], '.6f')) == rgbtime, 'kpt file time stamp error'
         kfarr = np.loadtxt(kffile, skiprows=1) # (N,7) , fmt='%d %d %d %d %.6f %.6f %.6f'
         # 转为字典 no
         kpts = kfarr[:, 1:3] # .astype(np.int32) # (n,2)
@@ -621,15 +640,14 @@ def main(cfg, args, orbmapdir="/home/dlr/Project1/ORB_SLAM2_Enhanced/result"):
         for i in range(kfarr_wd.shape[0]):
             assert kfarr_wd[i, 3] >= 0
             mpt_id = int(kfarr_wd[i, 3])
-            kfarr_wd[i, 7] = frame_reader.orb_xyzs_dict[mpt_id][3]
+            kfarr_wd[i, 7] = dic_mappts[mpt_id][3] # frame_reader.orb_xyzs_dict
         # 取出 weight较大的 70%
         min_th = np.percentile(kfarr_wd[:, 7], 40) # 本身从小到大 所以拿30%
         # kpts_wdepth = kpts[kfarr1[:, 3]>0] # 那些有深度的点才用 
         kpts_wdepth = kfarr_wd[kfarr_wd[:, 7]>min_th][:, 1:3] # 那些有深度且权重较大的点
         # kfarr = copy.deepcopy(kfarr1) # debug
         # 还要就取出首行 Tcw
-        tum_i = np.loadtxt(kffile, max_rows=1) # , fmt='%.1f %.6f %.6f %.6f %.6f %.6f %.6f %.6f'
-        assert int(tum_i[0]*10) == idx
+        
         kf_tq = tum_i[1:]
         kf_w2c = np.array(TQtoSE3(kf_tq))
         kf_c2w = np.linalg.inv(kf_w2c)

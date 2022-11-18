@@ -116,6 +116,12 @@ class BaseDataset(Dataset):
             index = index.item() 
         color_path = self.color_paths[index]
         if self.use_prior: # 若使用 prior 就是直接看id 不一定存在
+            # keypt_path = f'{self.prior_folder}/keypt/' + '%04d' % index + '.txt'
+            # if os.path.isfile(keypt_path):
+            #     depth_path = f'{self.prior_folder}/prior/cd' + '%04d' % index + '.png'
+            # else: # 若文件不存在 就再次赋值 none
+            #     depth_path = None # 用key 来看是否是kf
+            #     keypt_path = None
             if not index in self.prior_poses.keys():
                 depth_path = None # 用key 来看是否是kf
                 keypt_path = None
@@ -144,14 +150,6 @@ class BaseDataset(Dataset):
             depth_data = np.load(depth_path)
             # 实际上给的深度是有大于 10000 即使是office 所以先clip吧
             depth_data = np.clip(depth_data, 0, 10000)
-            # # 对于office0 76 82 83 上的3个外点做插值处理
-            # if index == 76 or index == 82 or index == 83:
-            #     qx, qy = np.argwhere(depth_data>30)[0]
-            #     print('bf interp, max: {}'.format(np.max(depth_data)))
-            #     print('depth[{}, {}] = {}'.format(qx, qy, depth_data[qx, qy]))
-            #     # 在 [qx, qy]处进行双线性插值
-            #     depth_data = bilinear_interp(depth_data, qx, qy)
-            #     print('aft interp, max: {}'.format(np.max(depth_data)))
         elif ('.exr' in depth_path):
             depth_data = readEXR_onlydepth(depth_path)
         # elif depth_path is None:
@@ -224,6 +222,9 @@ class BaseDataset(Dataset):
             color_data = color_data[edge:-edge, edge:-edge]
             if depth_data is not None:
                 depth_data = depth_data[edge:-edge, edge:-edge]
+            # 关键点weight也要 crop
+            if self.use_prior:
+                prior_weight = prior_weight[edge:-edge, edge:-edge]
         pose = self.poses[index]
         pose[:3, 3] *= self.scale #和深度x同一尺度因子
         if self.use_prior:
@@ -231,22 +232,6 @@ class BaseDataset(Dataset):
                 prior_pose = None # 用key 来看是否是kf
             else:
                 prior_pose = self.prior_poses[index] # prior已经尺度对齐到gt了
-        if False: # 稀疏化depth
-            mask1 = -np.ones_like(depth_data)
-            ikp = np.array(random.sample(range(0, W-1), 100))
-            jkp = np.array(random.sample(range(0, H-1), 100))
-            for k in range(ikp.shape[0]):
-                mask1[jkp[k], ikp[k]] = 1
-            mask2 = mask1 < 0
-            depth_data[mask2] = -2
-            # i, j = torch.meshgrid(torch.linspace( #目标图像区域 网格 list[20, 1221] list[20, 354] 
-            #     0, W-1, W), torch.linspace(H, H-1, H))
-            # i = i.t()  # transpose (1202,335)
-            # j = j.t()  # i和j其实就是 图像区域每像素的 下标 (u,v) 矩阵
-            # i = i.reshape(-1)
-            # j = j.reshape(-1)
-            # indices = torch.randint(i.shape[0], (100,)) # 值域[0，总像素数) 的size为(n)的向量
-            # indices = indices.clamp(0, i.shape[0]) # 确保值域范围 （多此一举？ 上句已经保证了）
         pose_nan = torch.full(size=pose.shape, fill_value=float('nan')).to(self.device) # 只是代替None 的任一变量 shape 无所谓
         if self.use_prior:
             if depth_data is not None:    
@@ -256,7 +241,7 @@ class BaseDataset(Dataset):
                 # pose_nan = torch.full(size=pose.shape, fill_value=float('nan')).to(self.device)
                 return index, color_data.to(self.device), pose_nan, pose.to(self.device), pose_nan, pose_nan, prior_weight.to(self.device)
         else: # 正常模式
-            return index, color_data.to(self.device), depth_data.to(self.device), pose.to(self.device), pose_nan, pose_nan, prior_weight.to(self.device)
+            return index, color_data.to(self.device), depth_data.to(self.device), pose.to(self.device), pose_nan, pose_nan, pose_nan
                     
 
     def createpcd(self, w2c_mats, skip = 30):
@@ -719,9 +704,220 @@ class TUM_RGBD(BaseDataset):
                  ):
         super(TUM_RGBD, self).__init__(cfg, args, scale, device)
         self.color_paths, self.depth_paths, self.poses = self.loadtum(
-            self.input_folder, frame_rate=32)
-        self.n_img = len(self.color_paths)
-
+            self.input_folder, frame_rate=32) # 32| 30
+        if cfg['data']['endnum']>0:
+            self.n_img = int(cfg['data']['endnum'])
+        else:
+            self.n_img = len(self.color_paths)
+        print('[TUM] imagelen: {}'.format(self.n_img))
+        
+        
+        # 增加选择是否载入 作为先验的kf pose 的 位姿 注意 是tum 格式 c2w
+        if self.use_prior:
+            # 载入 mappts.txt 3dpid x y z 注意这里还是以首帧为世界系下的 orb-slam输出的点云
+            self.load_sparse_points(f'{self.prior_folder}/mappts.txt')
+            # 在对位姿做完坐标系转换后 也会对 上面的原始orb 稀疏点云 做转换从而到对应的 nerf-pytorch坐标系
+            self.load_prior_poses(f'{self.prior_folder}/KeyFrameTrajectory.txt')
+            # 对每个关键点 由prior的重投影误差计算不确定性 并给出不确定性map
+            self.keypt_paths = sorted(
+                glob.glob(f'{self.prior_folder}/keypt/*.txt'))
+            self.compute_uncertainty()
+    
+    
+    def load_sparse_points(self, path):
+        """载入整体点云文件 mappts.txt 3dpid x y z [obsv_frameid kptid ....(repeat) ] [GEO ERROR]
+        其实只载入前4行组成tensor N,4 就行 最后将会保存每次最新的3d点
+        
+        3d点原本是认为在 首帧为世界系的坐标系下的 需要先转换到新的世界系下 
+        然后 再由于是nerf-pytorch坐标系 y,z要取反
+        Args:
+            path (str): orb-slam 输出的稀疏点云txt /home/dlr/Project1/ORB_SLAM2_Enhanced/result/replica/office0/mappts.txt
+        """
+        
+        # 载入 mapptsfile 以字典方式存吧  每行长度不一
+        dic_mappts = {}
+        with open(path, 'r') as f:
+            lines = f.readlines()
+        n_pts = len(lines) # 总3d点数
+        xyzs = []
+        for i in range(n_pts):
+            line = lines[i]
+            raw = line.split(' ')
+            if len(raw) <= 4: # 不会出现的
+                print('[ERROR] this 3d pt has no 2d obs!')
+                assert False
+            num_obs = int((len(raw)-4-1) / 2) # 增加最后一列是 误差 所以 -5
+            assert (len(raw)-4-1) % 2 == 0
+            dic_mappts[int(raw[0])] = []
+            xyz = np.array(raw[1:4], dtype=float) # (3)
+            if self.prior_scale is not None: # 如果需要 先对prior 稀疏点云 的尺度恢复! 
+                xyz *= self.prior_scale
+            dic_mappts[int(raw[0])].append(xyz)
+            xyz.reshape(1, -1)
+            xyzs += [xyz]
+            if len(raw) > 4: # 注意这里 最后一位不要
+                obsarr = np.array(list(map(int, raw[4:-1]))).reshape(num_obs, 2) # (n,2)
+                dic_mappts[int(raw[0])].append(obsarr)
+                # 列表的最后一项 存储误差
+                dic_mappts[int(raw[0])].append(float(raw[-1]))
+        # (mapptidx:[xyz, obsarr])
+        # 再来计算整体误差的和 以及各点的不确定性
+        geo_err = np.array([ dic_mappts[key][2] for key in dic_mappts.keys() ])
+        err_mean = np.mean(geo_err)
+        # wt_arr = 2*np.exp(-(geo_err/err_mean)**2)
+        for key in dic_mappts.keys():
+            va = dic_mappts[key]
+            err = va[2]
+            weight = 2 * np.exp(-(err/err_mean)**2) # * fact # (0,1] 之间的值 ds-nerf 中是x2 按下不表 5
+            dic_mappts[key].append(weight) # 再补充一个列表元素 保存weight
+        xyzs = np.stack(xyzs, 0) # (n,3)
+        self.orb_xyzs = xyzs
+        self.orb_xyzs_dict = dic_mappts # 可来验证
+    
+    # 载入tum 格式的 orb output 的单目 的kf pose 最后得到的也是字典但只在kf上有值
+    def load_prior_poses(self, path):
+        """载入tum 格式的 orb output 的单目 的kf pose 最后得到的也是字典但只在kf上有值 且是从I开始的
+        timestamp x y z i j k w
+        Args:
+            path (str): orb-mono 估计的kf pose路径 /home/dlr/Project1/ORB_SLAM2_Enhanced/result/KeyFrameTrajectory.txt
+        """
+        firstgtpose = self.poses[0].cpu().numpy() # c2w
+        firstgtpose[:3, 1] *= -1
+        firstgtpose[:3, 2] *= -1 # 拿出gt首帧pose 来给prior做变换 注意已经恢复到原坐标系 Twg0
+        estpose = np.loadtxt(path) # 本身是kf pose , dtype=np.unicode_
+        n_est = estpose.shape[0]
+        print('load prior pose from {}, kf len: {}'.format(path, n_est))
+        self.prior_poses = {}
+        self.orb_poses = {} # 只是保存 尺度对齐的 orb 坐标系下点云 
+        if self.prior_scale is not None: # 如果需要 先对prior pose 的平移尺度恢复
+            print('before 2 c2w, scale prior tum tq: {}'.format(self.prior_scale))
+            estpose[:, 1:4] *= self.prior_scale
+        # 注意tum的是真实时间戳 还是小数
+        dic_est = dict([ ( float(format(estpose[i, 0], '.6f')), 
+                         estpose [i, 1:]) 
+                         for i in range(n_est) ]) # key 就是 frame id
+        inv_pose = None # 保存 原始prior pose 的首帧位姿
+        ew2gw = None # 记录prior 的世界系相对于gt 世界系的变换  使用的前提是 尺度已经对齐！
+        # # 遍历字典 转变格式
+        # for (key, value) in dic_est.items():
+        #     frameid = key # kf 的 frame id
+        #     c2w = np.array(TQtoSE3(value))
+        #     self.orb_poses[frameid] = torch.from_numpy(c2w).float() # 直接保存尺度对齐的
+        #     if inv_pose is None: # 首帧位姿归I 但是好像只有tum做了归一化处理 why
+        #         inv_pose = np.linalg.inv(c2w) #T0we
+        #         ew2gw = firstgtpose@inv_pose # Twg0@T0we = Twg we
+        #         # c2w = np.eye(4)
+        #         c2w = ew2gw@c2w
+        #     else:
+        #         # c2w = inv_pose@c2w # T0w Twi = T0i
+        #         c2w = ew2gw@c2w
+        #     c2w[:3, 1] *= -1
+        #     c2w[:3, 2] *= -1
+        #     c2w = torch.from_numpy(c2w).float()
+        #     self.prior_poses[frameid] = c2w # 直接用字典 保存 对齐并 转换世界系的 prior kf pose
+        
+        # 遍历全序列 来赋值prior pose 这样才拿到真正frame index
+        for idx in range(self.n_img):
+            rgbpath = self.color_paths[idx]
+            strrgbtime = rgbpath.split('/')[-1][:-4] # str 完整时间戳
+            rgbtime = float(format(float(strrgbtime), '.6f')) # 6位小数
+            if (not rgbtime in dic_est.keys()):
+                continue # 非kf
+            value = dic_est[rgbtime] # 该时间戳在kf里 就拿出对应位姿
+            c2w = np.array(TQtoSE3(value))
+            self.orb_poses[idx] = torch.from_numpy(c2w).float() # 直接保存尺度对齐的
+            if inv_pose is None: # 首帧位姿归到 gt 的首帧
+                inv_pose = np.linalg.inv(c2w) #T0we
+                ew2gw = firstgtpose@inv_pose # Twg0@T0we = Twg we
+                # c2w = np.eye(4)
+                c2w = ew2gw@c2w
+            else:
+                # c2w = inv_pose@c2w # T0w Twi = T0i
+                c2w = ew2gw@c2w
+            c2w[:3, 1] *= -1
+            c2w[:3, 2] *= -1
+            c2w = torch.from_numpy(c2w).float()
+            self.prior_poses[idx] = c2w # 直接用字典 保存 对齐并 转换世界系的 prior kf pose
+            
+        
+        # 用Twg we 先把点云转换到同一个世界系下  再换为nerf 坐标
+        xyzs = self.orb_xyzs # copy.deepcopy() 这里的点云已经做过尺度对齐了
+        n_pcd = xyzs.shape[0]
+        xyzs_h = np.concatenate([xyzs, np.ones((n_pcd, 1))], -1) # (M,4)
+        xyzs_w = (xyzs_h @ ew2gw.T)[:, :3] # (M,3)
+        xyzs_w[:, 1] *= -1
+        xyzs_w[:, 2] *= -1 
+        self.prior_xyzs = torch.from_numpy(xyzs_w) # 这才是和现在 prior pose 对应的点云 注意
+        
+        # 再转为一个字典 key 本身就是和 mappts的行数一致
+        self.prior_xyzs_dict = dict([(i, self.prior_xyzs[i]) for i in range(n_pcd)])
+        #再用另一个字典保存固定的来自先验的3d对所有kf的2d观测  它的key不一定涉及所有mappts 其实都有观测
+        self.prior_3dobs_dict = {}
+        for (key, value) in self.orb_xyzs_dict.items():
+            if len(value) > 1: # 表示此3d点有对应的2d点 直接添加就行
+                obsarr = value[1] # (o, 2) 
+                self.prior_3dobs_dict[key] = torch.from_numpy(obsarr)
+    
+    def compute_uncertainty(self):
+        # load sparse points已经保存了所有地图点的weight, 这里要覆盖到图像上
+        print('when use prior from sparse recon, save variance for kf ')  
+        self.kpt_weight = {} # 用字典保存 不确定性map
+        n_kf = len(self.keypt_paths) 
+        
+        for i in range(n_kf):
+            kpt_path = self.keypt_paths[i]
+            idx = int(kpt_path[-8:-4]) # 得到真实frame id
+            # 验证是否对的上时间戳
+            rgbpath = self.color_paths[idx]
+            strrgbtime = rgbpath.split('/')[-1][:-4] # str 完整时间戳
+            rgbtime = float(format(float(strrgbtime), '.6f')) # 6位小数
+            # 取出此帧 时间
+            tum_i = np.loadtxt(kpt_path, max_rows=1) # , fmt='%.1f %.6f %.6f %.6f %.6f %.6f %.6f %.6f'
+            assert float(format(tum_i[0], '.6f')) == rgbtime, 'kpt file time stamp error'
+            # kptid u v 3dpid(-1表示没有对应) x(-1) y z
+            keypt_arr = np.loadtxt(kpt_path, skiprows=1)[:, :4] # (m,4)
+            # keypt_data = torch.from_numpy(keypt_arr) # 这里kpt像素坐标 是在原图size上的
+            w_map = -np.zeros((self.H, self.W)) # 初始不确定性 全0 
+            # 拿出那些 由深度的 关键点 应该
+            kt_arr = keypt_arr[keypt_arr[:, 3]>=0]
+            
+            wt_arr = np.array([ self.orb_xyzs_dict[int(kt_arr[j, 3])][3] for j in range(kt_arr.shape[0])])
+            # 分位数 阈值 相当于拿出 较大的1-30 %
+            per_th = np.percentile(wt_arr, 21)
+            
+            # # err 方差最大 0，0225 标准差最大 0.15 置信度 最小值 20/3
+            # fact = (20./3) / wt_th (10./2)
+            wt_th = max( (2./3),  per_th) # 除了保证 满足方差要求 也要滤掉本张图里 较小的20%
+            
+            pdata = []
+            for j in range(kt_arr.shape[0]):
+                assert kt_arr[j, 3] >= 0 # 没出现过
+                mpt_id = int(kt_arr[j, 3])
+                # 拿出对应地图点的 weigh
+                wt_mpt = self.orb_xyzs_dict[mpt_id][3] # list 里的最后一项
+                if wt_mpt < wt_th: # 1e-3: 置信度太小就不要
+                    continue
+                uj, vj = int(np.around(kt_arr[j, 1:3])[0]), int(np.around(kt_arr[j, 1:3])[1])  # 取整
+                # 赋值到 w_map
+                w_map[vj, uj] = wt_mpt
+                pdata+= [np.array([uj, vj, wt_mpt])]
+            pdata = np.stack(pdata, 0) # 会出现(w_map>-0.).sum() != kt_arr.shape[0]
+            self.kpt_weight[idx] = torch.from_numpy(w_map)
+            
+            # # 可视化有效关键点权重
+            # rgbpath = self.color_paths[idx]
+            # color_data = cv2.imread(rgbpath) # h,w,3 unit8
+            # color_data = cv2.cvtColor(color_data, cv2.COLOR_BGR2RGB)
+            # color_data = color_data / 255.
+            # import matplotlib.pyplot as plt
+            # cm = plt.cm.get_cmap('RdYlBu')
+            # fig, axs = plt.subplots(1, 1)
+            # fig.tight_layout()
+            # axs.imshow(color_data, cmap="plasma") # imshow
+            # sc = axs.scatter(pdata[:, 0], pdata[:, 1], c=pdata[:, 2], s=5, cmap=cm)
+            # plt.colorbar(sc)
+            # plt.savefig(f'{self.prior_folder}/keypt/' + 'w%04d' % idx + '.jpg', dpi=200)
+            
     def parse_list(self, filepath, skiprows=0):
         """ read list data """
         data = np.loadtxt(filepath, delimiter=' ',
@@ -731,7 +927,7 @@ class TUM_RGBD(BaseDataset):
     def associate_frames(self, tstamp_image, tstamp_depth, tstamp_pose, max_dt=0.08):
         """ pair images, depths, and poses """
         associations = []
-        for i, t in enumerate(tstamp_image):
+        for i, t in enumerate(tstamp_image): # 以rgb图像时间为准
             if tstamp_pose is None:
                 j = np.argmin(np.abs(tstamp_depth - t))
                 if (np.abs(tstamp_depth[j] - t) < max_dt):
@@ -744,13 +940,13 @@ class TUM_RGBD(BaseDataset):
                 if (np.abs(tstamp_depth[j] - t) < max_dt) and \
                         (np.abs(tstamp_pose[k] - t) < max_dt):
                     associations.append((i, j, k))
-
+        # 返回的是各自下标
         return associations
 
     def loadtum(self, datapath, frame_rate=-1):
         """ read video data in tum-rgbd format """
         if os.path.isfile(os.path.join(datapath, 'groundtruth.txt')):
-            pose_list = os.path.join(datapath, 'groundtruth.txt')
+            pose_list = os.path.join(datapath, 'groundtruth.txt') # 这里
         elif os.path.isfile(os.path.join(datapath, 'pose.txt')):
             pose_list = os.path.join(datapath, 'pose.txt')
 
@@ -761,7 +957,7 @@ class TUM_RGBD(BaseDataset):
         depth_data = self.parse_list(depth_list)
         pose_data = self.parse_list(pose_list, skiprows=1)
         pose_vecs = pose_data[:, 1:].astype(np.float64)
-
+        # 三者时间戳
         tstamp_image = image_data[:, 0].astype(np.float64)
         tstamp_depth = depth_data[:, 0].astype(np.float64)
         tstamp_pose = pose_data[:, 0].astype(np.float64)
@@ -777,7 +973,11 @@ class TUM_RGBD(BaseDataset):
 
         images, poses, depths, intrinsics = [], [], [], []
         inv_pose = None
+        # # 保存的关联文件
+        # saveass_path = os.path.join(datapath, 'associations.txt')
+        # f = open(saveass_path, 'w')
         for ix in indicies:
+            # 这里才是最后确定的tum 的数据
             (i, j, k) = associations[ix]
             images += [os.path.join(datapath, image_data[i, 1])]
             depths += [os.path.join(datapath, depth_data[j, 1])]
@@ -791,7 +991,11 @@ class TUM_RGBD(BaseDataset):
             c2w[:3, 2] *= -1
             c2w = torch.from_numpy(c2w).float()
             poses += [c2w]
-
+            # # 按照下面格式写入
+            # # 1341847980.722988 rgb/1341847980.722988.png 1341847980.723020 depth/1341847980.723020.png
+            # f.write('{} {} {} {}\n'.format(image_data[i, 0], image_data[i, 1], 
+            #                              depth_data[j, 0], depth_data[j, 1]))
+        # f.close()
         return images, depths, poses
 
     def pose_matrix_from_quaternion(self, pvec):

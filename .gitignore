@@ -149,4 +149,4 @@ ddl_output
 
 resize2-regu-init.log
 
-*.sh
+# *.sh
