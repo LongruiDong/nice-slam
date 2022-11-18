@@ -138,9 +138,12 @@ rendering:
   N_importance: 12
   lindisp: False
   perturb: 0.0
+  less_sample_space: False
+  use_KL_loss: False
 data:
   dim: 3
   wnoise: False #使用噪声深度为输入
+  endnum: -1 # 实际那前#帧 若为-1 则默认全部 
 model:
   c_dim: 32
   coarse_bound_enlarge: 2

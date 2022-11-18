@@ -1,0 +1,20 @@
+now do Replica-office0 	 
+evaluating output/Replica_vis/office0gt-vismy/mesh/final_mesh_eval_rec.ply
+accuracy:  9.808710403476137
+completion:  5.59120353796737
+completion ratio:  65.889
+Depth L1:  9.77066308259964
+now do Replica-office1 	 
+evaluating output/Replica_vis/office1gt-vismy/mesh/final_mesh_eval_rec.ply
+now do Replica-office2 	 
+evaluating output/Replica_vis/office2gt-vismy/mesh/final_mesh_eval_rec.ply
+now do Replica-office3 	 
+evaluating output/Replica_vis/office3gt-vismy/mesh/final_mesh_eval_rec.ply
+now do Replica-office4 	 
+evaluating output/Replica_vis/office4gt-vismy/mesh/final_mesh_eval_rec.ply
+now do Replica-room0 	 
+evaluating output/Replica_vis/room0gt-vismy/mesh/final_mesh_eval_rec.ply
+now do Replica-room1 	 
+evaluating output/Replica_vis/room1gt-vismy/mesh/final_mesh_eval_rec.ply
+now do Replica-room2 	 
+evaluating output/Replica_vis/room2gt-vismy/mesh/final_mesh_eval_rec.ply

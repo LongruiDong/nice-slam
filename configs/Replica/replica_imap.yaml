@@ -22,6 +22,18 @@ mapping:
   pixels: 5000
   iters_first: 1500
   iters: 300
+  color_loss_mask: False # color loss 是否用depth mask
+  use_regulation: False # 对于nice 是否对深度前的区域正则化 sigma /occ
+  use_sparse_loss: False # 稀疏点 单独构建 depth color loss
+  use_sparse_color: False # 上面就特指sparse depth 这里kpt上的 color 就在吧
+rendering:
+  # less_sample_space: True # 是否用粗糙深度来在surface附近区间内多重采样
+  up_sample_steps: 2 # 在表面附件多重采样的次数 暂时每次16个
+  emperical_range: 0.15 # 增加参数控制 surface 的range 比例 0.05| 0.1 0.15
+  # use_KL_loss: True # 是否使用ds-nerf的sigma loss True
+  # # https://github.com/dunbar12138/DSNeRF/blob/d9deb70ac1464348aebbe5e32fc98aeca1920f70/run_nerf.py#L527
+  raw_noise_std: 1.0 # 'std dev of noise added to regularize sigma_a output, 1e0 recommended' 只是对于nerf nice-slam还用不上
+  sigma_lambda: 0.01 # 权重因子 used for KL loss 0.1
 cam:
   H: 680
   W: 1200

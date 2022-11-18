@@ -506,4 +506,47 @@ def get_rays_by_weight(H, W, fx, fy, cx, cy, c2w, depth, color,
     rays_o, rays_d = get_rays_from_uv(kpt_u, kpt_v, c2w, H, W, fx, fy, cx, cy, device)
     
     return rays_o, rays_d, sample_depth, sample_color, sample_weight, kpt_u, kpt_v
+
+
+def calc_depth_l1(est_depth, gt_depth):
+    """
+    计算给定图 的 depth L1 error
+    copy from src/tools/eval_recon.py calc_2d_metric.py
+    Args:
+        est_depth (np.array): 估计的深度图
+        dt_depth (np.array): 真实的深度图
+    """
+    
+    assert est_depth.shape == gt_depth.shape, 'est_depth shape != gt_depth shape'
+    # 对于tum 还会有 sensor depth 残缺的情况
+    valid_mask = (gt_depth > 0.)
+    error = np.abs(gt_depth[valid_mask] - est_depth[valid_mask]).mean()
+    
+    return error
+
+def mse(image_pred, image_gt, valid_mask=None, reduction='mean'):
+    
+    value = (image_pred-image_gt)**2
+    if valid_mask is not None:
+        value = value[valid_mask]
+    if reduction == 'mean':
+        return value.mean()
+    return value
+
+def calc_psnr(image_pred, image_gt, valid_mask=None, reduction='mean'):
+    """
+    PSNR, borrow from nerf-pl: metrics.py
+
+    Args:
+        image_pred (np.array): _description_
+        image_gt (np.array): _description_
+        valid_mask (np.array, optional): _description_. Defaults to None.
+        reduction (str, optional): _description_. Defaults to 'mean'.
+
+    Returns:
+        float: _description_
+    """
+    assert image_pred.shape == image_gt.shape, 'image_pred shape != image_gt shape'
+    
+    return -10*np.log10(mse(image_pred, image_gt, valid_mask, reduction))
     

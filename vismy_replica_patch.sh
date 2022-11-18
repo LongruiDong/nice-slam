@@ -17,10 +17,12 @@
 #     # nohup ./eval_replica.sh >log/eval_replica.log 2>&1 &
 # done
 
-CUDA_VISIBLE_DEVICES=1 nohup python -W ignore run.py configs/Replica/office0gt-visbl.yaml >log/office0gt-visbl.log 2>&1 &
+CUDA_VISIBLE_DEVICES=1 nohup python -W ignore run.py configs/Replica/office0gt-vismy-patchsm.yaml >log/office0gt-vismy-patchsm.log 2>&1 &
 
-CUDA_VISIBLE_DEVICES=2 nohup python -W ignore run.py configs/Replica/office1gt-visbl.yaml >log/office1gt-visbl.log 2>&1 &
+# CUDA_VISIBLE_DEVICES=2 nohup python -W ignore run.py configs/Replica/office1gt-vismy-patchsm.yaml >log/office1gt-vismy-patchsm.log 2>&1 &
 
+CUDA_VISIBLE_DEVICES=1 nohup python -W ignore run.py configs/Replica/room0gt-vismy-patchsm.yaml >log/room0gt-vismy-patchsm.log 2>&1 &
+CUDA_VISIBLE_DEVICES=2 nohup python -W ignore run.py configs/Replica/room2gt-vismy-patchsm.yaml >log/room2gt-vismy-patchsm.log 2>&1 &
 # CUDA_VISIBLE_DEVICES=3 nohup python -W ignore run.py configs/Replica/office2gt-visbl.yaml >log/office2gt-visbl.log 2>&1 &
 
 # CUDA_VISIBLE_DEVICES=2 nohup python -W ignore run.py configs/Replica/office3gt-visbl.yaml >log/office3gt-visbl.log 2>&1 &

@@ -1,5 +1,5 @@
 # for use coarse depth prior debug 测试使用三角剖分的预测的深度作为初始来在线mapping
-inherit_from: configs/Replica/replica.yaml
+inherit_from: configs/Replica/replica_imap.yaml
 scale: 1 # 原始scale参数 涉及给定的bound, 改变读入的depth
 usepriormap: True # 增加选项 若为true表示只是定位 载入给定地图 false即为原nice-slam
 onlyvis: True # 增加选项 在载入给定地图的情况下 只是track1个线程进行可视化并保存  不再使用其他线程
@@ -8,7 +8,9 @@ use_prior: False # 是否载入作为先验的 pose 和depth 这里暂时depth �
 rgbonly: True # 增加选项 是否为单目模式 即无depth loss
 guidesample: True # 增加选项 测试深度引导对在线的作用
 tracking:
-  priormap: /home/dlr/Project/nice-slam/output/Replica_prior/office0gt-sp-5hz-KLoss-stagecolor/ckpts/01999.tar
+  priormap: /home/dlr/Project2/nice-slam/output_imap_bl/Replica/office0gtp-rgb/ckpts/01999.tar
+  # /home/dlr/Project2/nice-slam/output_bl/Replica/office0gtp-rgb/ckpts/01999.tar
+  # /home/dlr/Project/nice-slam/output/Replica_prior/office0gt-sp-5hz-KLoss-stagecolor/ckpts/01999.tar
   gt_camera: True #? True False
   prior_camera: False # 增加选项track就用先验位姿做初值
   vis_freq: 1
@@ -43,20 +45,20 @@ mapping:
   w_depth_loss: 0.3 # 跟depth loss 加权
 rendering:
   N_samples: 32 #N_strat 32 64
-  N_surface: 48 #在深度周围 16| 0  48
-  N_importance: 48 #为啥是0 nerf里是有这一步 hirecial 采样吧 12(imap*) 16(总数和原始保持一致) 32 48 64
+  N_surface: 48 #在深度周围 16| 0 
+  N_importance: 48 # 12 64 为啥是0 nerf里是有这一步 hirecial 采样吧 12(imap*) 16(总数和原始保持一致) 32
   lindisp: False
   perturb: 0.0 
-  less_sample_space: True # 是否用粗糙深度来在surface附近区间内多重采样
-  up_sample_steps: 2 # 在表面附件多重采样的次数 暂时每次16个
-  emperical_range: 0.15 # 增加参数控制 surface 的range 比例 0.05| 0.1 0.15
-  use_KL_loss: True # 是否使用ds-nerf的sigma loss True
-  # https://github.com/dunbar12138/DSNeRF/blob/d9deb70ac1464348aebbe5e32fc98aeca1920f70/run_nerf.py#L527
-  raw_noise_std: 1.0 # 'std dev of noise added to regularize sigma_a output, 1e0 recommended' 只是对于nerf nice-slam还用不上
-  sigma_lambda: 0.01 # 权重因子 used for KL loss 0.1 
+  # less_sample_space: True # 是否用粗糙深度来在surface附近区间内多重采样
+  # up_sample_steps: 2 # 在表面附件多重采样的次数 暂时每次16个
+  # emperical_range: 0.15 # 增加参数控制 surface 的range 比例 0.05| 0.1 0.15
+  # use_KL_loss: True # 是否使用ds-nerf的sigma loss True
+  # # https://github.com/dunbar12138/DSNeRF/blob/d9deb70ac1464348aebbe5e32fc98aeca1920f70/run_nerf.py#L527
+  # raw_noise_std: 1.0 # 'std dev of noise added to regularize sigma_a output, 1e0 recommended' 只是对于nerf nice-slam还用不上
+  # sigma_lambda: 0.01 # 权重因子 used for KL loss 0.1 
 data:
   input_folder: Datasets/Replica/office0
-  output: output/Replica_vis/office0gt-vismy # -woguidesample # -resize2 -debug-KLloss # onlyvis -woguide -it1k  ertune office0gt-nodloss1-woNsurf-Ni32-p1k-f4k-it4k-init
+  output: output/Replica_vis/office0gt-visbl_imap # -resize2 -debug-KLloss # onlyvis -woguide -it1k  ertune office0gt-nodloss1-woNsurf-Ni32-p1k-f4k-it4k-init
   # prior_folder: /home/dlr/Project1/ORB_SLAM2_Enhanced/result/replica/office0
 cam:
   # depth_trunc: 8 # add for limit bound discard larger depth -1| 对于prior depth 得用

@@ -57,7 +57,7 @@ class Mesher(object):
         """
         Split the input points into seen, unseen, and forcast,
         according to the estimated camera pose and depth image.
-
+        会和pose depth有关 但我之前都是用 render 较差的不准的depth 来做的 所以mesh的生成会不标准?
         Args:
             input_points (tensor): input points.
             keyframe_dict (list): list of keyframe info dictionary.
@@ -217,7 +217,7 @@ class Mesher(object):
         """
         Get the scene bound (convex hull),
         using sparse estimated camera poses and corresponding depth images.
-
+        会和pose depth有关 但我之前都是用 render 较差的不准的depth 来做的 所以mesh的生成会不标准?
         Args:
             keyframe_dict (list): list of keyframe info dictionary.
             scale (float): scene scale.

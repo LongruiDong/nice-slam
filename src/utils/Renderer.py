@@ -1,6 +1,8 @@
 from copy import copy
+from cv2 import PSNR
 import torch, os
-from src.common import get_rays, raw2outputs_nerf_color, sample_pdf, get_rays_by_weight
+from src.common import (get_rays, raw2outputs_nerf_color, sample_pdf, get_rays_by_weight,
+                        calc_depth_l1, calc_psnr)
 # from src.utils.Visualizer import Visualizer.
 # import matplotlib.pyplot as plt
 import cv2
@@ -773,8 +775,9 @@ class Renderer(object):
             gt_depth_np = gt_depth.detach().cpu().numpy()
             gt_color_np = gt_color.detach().cpu().numpy()
             
-            # 进行psnr depth l1 loss 的计算 to do 
-            
+            # 进行psnr depth l1 loss 的计算
+            depth_l1_error = calc_depth_l1(depth_np, gt_depth_np) 
+            psnr = calc_psnr(color_np, gt_color_np)
             # 分别画 gt depth est_depth est_color
             # fig1, axs1 = plt.subplots(1, 1)
             # fig2, axs2 = plt.subplots(1, 1)
@@ -804,4 +807,5 @@ class Renderer(object):
             cv2.imwrite(est_c_file, color_np)
             cv2.imwrite(gt_d_file, gt_depth_np)
             
-            return depth, uncertainty, color
+            # return depth, uncertainty, color
+            return depth_l1_error, psnr

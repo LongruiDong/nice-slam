@@ -63,13 +63,13 @@ class NICE_SLAM():
         self.load_bound(cfg) 
         if self.nice:
             if self.usepriormap:
-                self.load_priormap(cfg)
+                self.load_priormap(cfg, nice=True)
             else:
                 self.load_pretrain(cfg)
                 self.grid_init(cfg)
         else:
-            if self.usepriormap:
-                pass
+            if self.usepriormap: # 针对imap的情况
+                self.load_priormap(cfg, nice=False)
             self.shared_c = {}
 
         # need to use spawn
@@ -285,7 +285,7 @@ class NICE_SLAM():
 
         self.shared_c = c
     
-    def load_priormap(self, cfg):
+    def load_priormap(self, cfg, nice=True):
         """
         从之前已经建立好的map文件 ckpt 载入需要的 grid_feature 和 所有decoder 特别是color decoder
         反正另外3个decodera是pretrained
@@ -296,16 +296,17 @@ class NICE_SLAM():
         print('Get ckpt :', ckpt_path)
         ckpt = torch.load(ckpt_path, map_location=cfg['mapping']['device'])
         print('Load prior map ckpt done !')
-        # 直接拿出 grid tmp_c
-        self.shared_c = ckpt['c']
-        # 需要更改 c里 各level requires_grad 属性为valse
-        for key, val in self.shared_c.items():
-            val.requires_grad = False
-            self.shared_c[key] = val.cpu()
-        print('[Debug] grid_color: \n',self.shared_c['grid_color'].shape)
+        if nice:
+            # 直接拿出 grid tmp_c
+            self.shared_c = ckpt['c']
+            # 需要更改 c里 各level requires_grad 属性为valse
+            for key, val in self.shared_c.items():
+                val.requires_grad = False
+                self.shared_c[key] = val.cpu()
+            print('[NICE] grid_color: \n',self.shared_c['grid_color'].shape)
         # # 再读入 几何decoder
         # self.load_pretrain(cfg)
-        # 一次性读入去全部 
+        # 一次性读入去全部  nice和imap都适用
         self.shared_decoders.load_state_dict(ckpt['decoder_state_dict'])
         print('Load prior decoder all state_dict done !')
     

@@ -48,6 +48,12 @@ class Tracker(object):
         # 增加记录每次迭代时在当前帧选择的点的坐标
         self.slecti = torch.zeros(0,)
         self.slectj = torch.zeros(0,)
+        self.keyframe_every = cfg['mapping']['keyframe_every']
+        self.clean_mesh = cfg['meshing']['clean_mesh']
+        if self.usepriormap and self.onlyvis:
+            # 别和mapper的搞混
+            self.keyframe_dict = [] # 还是个列表 里面每个元素是dict 注意这只是tracker的
+            self.keyframe_list = []
 
         self.cam_lr = cfg['tracking']['lr']
         self.device = cfg['tracking']['device']
@@ -187,6 +193,9 @@ class Tracker(object):
             pbar = self.frame_loader
         else:
             pbar = tqdm(self.frame_loader)
+        # 记录所有帧的 depth_l1 和 psnr
+        depth_error = []
+        img_psnr = []
         # gt_depth 这里可能是prior coarse depth, prior_c2w(后续可以以此代替gt位姿), keypt, prior_weight
         for idx, gt_color, gt_depth, gt_c2w, prior_c2w, _, _ in pbar: 
             if not self.verbose:
@@ -252,10 +261,13 @@ class Tracker(object):
                 
                 if self.usepriormap and self.onlyvis:
                     if idx % self.every_frame == 0 or idx==self.n_img-1:
-                        self.renderer.evavis_img(self.c, self.decoders, idx, c2w, self.device, 
+                        retvis = self.renderer.evavis_img(self.c, self.decoders, idx, c2w, self.device, 
                                                 stage='color', 
                                                 gt_depth=gt_depth,
-                                                gt_color=gt_color) 
+                                                gt_color=gt_color)
+                        depth_l1, psnr = retvis
+                        depth_error += [depth_l1]
+                        img_psnr += [psnr] 
 
             else:
                 gt_camera_tensor = get_tensor_from_camera(gt_c2w)
@@ -326,6 +338,37 @@ class Tracker(object):
             self.estimate_c2w_list[idx] = c2w.clone().cpu()
             self.gt_c2w_list[idx] = gt_c2w.clone().cpu()
             pre_c2w = c2w.clone()
-            self.idx[0] = idx
+            self.idx[0] = idx 
+            if self.usepriormap and self.onlyvis:
+                if (idx == self.n_img-2) or (idx % self.keyframe_every == 0) \
+                    and (idx not in self.keyframe_list):
+                    self.keyframe_dict.append({'gt_c2w': gt_c2w.cpu(), 'idx': idx, 'color': gt_color.cpu(
+                                ), 'depth': gt_depth.cpu(), 'est_c2w': c2w.clone()})
+                    self.keyframe_list.append(idx) #关键帧列表 以 frame_id组成
             if self.low_gpu_mem:
                 torch.cuda.empty_cache()
+            
+            # 若是最后一帧 这里进行mesh的提取吧
+            if self.usepriormap and self.onlyvis:
+                if idx==self.n_img-1:
+                    mesh_out_file = f'{self.output}/mesh/final_mesh_eval_rec.ply'
+                    
+                    self.mesher.get_mesh(mesh_out_file, self.c, self.decoders, self.keyframe_dict,
+                                             self.estimate_c2w_list, idx, self.device, show_forecast=False,
+                                             clean_mesh=self.clean_mesh, get_mask_use_all_frames=True) #只在评估重建质量时
+                    # pass
+        
+        # 计算所有 涉及到的帧 误差平均
+        depth_errors = np.array(depth_error)
+        img_psnrs = np.array(img_psnr)
+        
+        # from m to cm
+        print('Tracked Depth L1 (cm): ', depth_errors.mean()*100)
+        print('Tracked PSNR (dB): ', img_psnrs.mean())
+        
+        if self.low_gpu_mem:
+            torch.cuda.empty_cache()
+        
+        
+        
+        

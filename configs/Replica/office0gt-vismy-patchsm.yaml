@@ -8,7 +8,8 @@ use_prior: False # 是否载入作为先验的 pose 和depth 这里暂时depth �
 rgbonly: True # 增加选项 是否为单目模式 即无depth loss
 guidesample: True # 增加选项 测试深度引导对在线的作用
 tracking:
-  priormap: /home/dlr/Project/nice-slam/output/Replica_prior/office0gt-sp-5hz-KLoss-stagecolor/ckpts/01999.tar
+  priormap: /home/dlr/ddl/nice-sup/output/Replica_prior/office0gt-sp-KLoss-patchsm1/ckpts/01999.tar
+  # /home/dlr/Project/nice-slam/output/Replica_prior/office0gt-sp-5hz-KLoss-stagecolor/ckpts/01999.tar
   gt_camera: True #? True False
   prior_camera: False # 增加选项track就用先验位姿做初值
   vis_freq: 1
@@ -42,9 +43,9 @@ mapping:
   w_color_loss: 1.
   w_depth_loss: 0.3 # 跟depth loss 加权
 rendering:
-  N_samples: 32 #N_strat 32 64
-  N_surface: 48 #在深度周围 16| 0  48
-  N_importance: 48 #为啥是0 nerf里是有这一步 hirecial 采样吧 12(imap*) 16(总数和原始保持一致) 32 48 64
+  N_samples: 32 #N_strat
+  N_surface: 48 #在深度周围 16| 0 
+  N_importance: 48 #为啥是0 nerf里是有这一步 hirecial 采样吧 12(imap*) 16(总数和原始保持一致) 32
   lindisp: False
   perturb: 0.0 
   less_sample_space: True # 是否用粗糙深度来在surface附近区间内多重采样
@@ -56,7 +57,7 @@ rendering:
   sigma_lambda: 0.01 # 权重因子 used for KL loss 0.1 
 data:
   input_folder: Datasets/Replica/office0
-  output: output/Replica_vis/office0gt-vismy # -woguidesample # -resize2 -debug-KLloss # onlyvis -woguide -it1k  ertune office0gt-nodloss1-woNsurf-Ni32-p1k-f4k-it4k-init
+  output: output/Replica_vis/office0gt-vismy-patchsm # -resize2 -debug-KLloss # onlyvis -woguide -it1k  ertune office0gt-nodloss1-woNsurf-Ni32-p1k-f4k-it4k-init
   # prior_folder: /home/dlr/Project1/ORB_SLAM2_Enhanced/result/replica/office0
 cam:
   # depth_trunc: 8 # add for limit bound discard larger depth -1| 对于prior depth 得用

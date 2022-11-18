@@ -1,0 +1,44 @@
+now do Replica-office0 	 
+evaluating output/Replica_vis/office0gt-visbl/mesh/final_mesh_eval_rec.ply
+accuracy:  16.30064596695142
+completion:  8.456384614498788
+completion ratio:  53.629000000000005
+Depth L1:  28.755012154579163
+now do Replica-office1 	 
+evaluating output/Replica_vis/office1gt-visbl/mesh/final_mesh_eval_rec.ply
+now do Replica-office2 	 
+evaluating output/Replica_vis/office2gt-visbl/mesh/final_mesh_eval_rec.ply
+accuracy:  25.985880041015115
+completion:  27.032353327364937
+completion ratio:  31.339
+Depth L1:  77.630615234375
+now do Replica-office3 	 
+evaluating output/Replica_vis/office3gt-visbl/mesh/final_mesh_eval_rec.ply
+accuracy:  15.232532723774748
+completion:  12.825468936220744
+completion ratio:  42.237
+Depth L1:  36.21053695678711
+now do Replica-office4 	 
+evaluating output/Replica_vis/office4gt-visbl/mesh/final_mesh_eval_rec.ply
+accuracy:  23.341530829512653
+completion:  17.078802180478846
+completion ratio:  33.094
+Depth L1:  64.068603515625
+now do Replica-room0 	 
+evaluating output/Replica_vis/room0gt-visbl/mesh/final_mesh_eval_rec.ply
+accuracy:  16.95308707263398
+completion:  12.623520636933339
+completion ratio:  43.7965
+Depth L1:  42.2943115234375
+now do Replica-room1 	 
+evaluating output/Replica_vis/room1gt-visbl/mesh/final_mesh_eval_rec.ply
+accuracy:  11.531385969771817
+completion:  7.676256081951884
+completion ratio:  56.0315
+Depth L1:  16.780267655849457
+now do Replica-room2 	 
+evaluating output/Replica_vis/room2gt-visbl/mesh/final_mesh_eval_rec.ply
+accuracy:  13.926683661997409
+completion:  11.037093081040595
+completion ratio:  47.427
+Depth L1:  20.3031986951828
