@@ -31,6 +31,7 @@ class NICE_SLAM():
         # 这些变量来自与yaml哪里
         # 和 prior coarse geometry 有关的设置参数
         self.use_prior = cfg['use_prior'] # 是否载入 est depth 作为 gt deptj
+        self.prior_launch = cfg['prior_launch'] # 是否也在orbkf 触发mapping
         self.guide_sample = cfg['guidesample']
         self.less_sample_space = cfg['rendering']['less_sample_space'] # 是否在 surface 附近区间多重采样,对应不同的render_batch
         self.use_KL_loss = cfg['rendering']['use_KL_loss'] # 是否使用ds-nerf的sigma loss, 对应于调用不同的raw2output 函数

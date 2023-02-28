@@ -28,6 +28,7 @@ class Tracker(object):
         self.rgbonly = slam.rgbonly
         self.guide_sample = slam.guide_sample
         self.use_prior = slam.use_prior
+        self.prior_launch = slam.prior_launch
         self.less_sample_space = slam.less_sample_space # 是否在 surface 附近区间多重采样,对应不同的render_batch
         self.idx = slam.idx
         self.nice = slam.nice
@@ -196,7 +197,7 @@ class Tracker(object):
             if self.sync_method == 'strict':
                 # strictly mapping and then tracking idx % self.every_frame == 1 or self.every_frame == 1 or 去掉这些就是 只管orb kf
                 # initiate mapping every self.every_frame frames 这里增加 对于kf都tracking 否则 mapping那边更是receive不到
-                if self.use_prior:
+                if self.use_prior and self.prior_launch: # 增加一个条件判定
                     if idx > 0 and (idx % self.every_frame == 1 or self.every_frame == 1 or ((idx-1) in self.frame_reader.prior_poses.keys())):
                         while self.mapping_idx[0] != idx-1:
                             time.sleep(0.1)

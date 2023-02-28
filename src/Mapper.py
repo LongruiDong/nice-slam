@@ -28,6 +28,7 @@ class Mapper(object):
         self.rgbonly = slam.rgbonly
         self.guide_sample = slam.guide_sample
         self.use_prior = slam.use_prior
+        self.prior_launch = slam.prior_launch
         self.idx = slam.idx
         self.nice = slam.nice
         self.c = slam.shared_c
@@ -737,7 +738,7 @@ class Mapper(object):
                 sp_factor = float(depth.shape[0]) / depth_sp.shape[0] # 数量上平衡 一般点 和 系数深度点的数量上的比值
                 if self.use_sparse_loss:
                     sp_depth_loss = (torch.abs( #
-                        prior_depth-depth_sp) * prior_weight)[prior_mask].sum()
+                        prior_depth-depth_sp) * prior_weight)[prior_mask].sum() # prior_weight 1.0
                     loss += sp_factor* self.w_depth_loss * sp_depth_loss
             if ((not self.nice) or (self.stage == 'color')): # 才发现 其他stage color是0 所以之前 rgb only 时应该 都改为color stage,反正其他stage color loss是错的
                 if self.color_loss_mask: # 是否使用depth 的mask
@@ -844,7 +845,7 @@ class Mapper(object):
                     break
                 
                 if self.sync_method == 'strict': #输入参数每隔x帧进行mapping 增加 若是orb kf 也开启  之后可以再是 只有在kf map  idx % self.every_frame == 0 or 试验后还是得加上更好一些
-                    if self.use_prior:
+                    if self.use_prior and self.prior_launch: # 增加一个条件判定
                         if ( idx % self.every_frame == 0 or (idx in self.frame_reader.prior_poses.keys()) ) and idx != prev_idx:
                             break #否则就一直在里面循环
                     else:

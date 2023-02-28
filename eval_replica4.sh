@@ -26,10 +26,13 @@
 # srun --partition=xr_research --mpi=pmi2 --gres=gpu:1 -n 1 --ntasks-per-node=1 --job-name=office2-prior --kill-on-bad-exit=1 python -W ignore run.py configs/Replica/office2gt-spcd-KL.yaml >log/office2gt-spcd-KL.log
 
 
-srun --partition=xr_research --mpi=pmi2 --gres=gpu:1 -n 1 --ntasks-per-node=1 --job-name=office4-prior --kill-on-bad-exit=1 python -W ignore run.py configs/Replica/office4gt-spcd-KL.yaml >log/office4gt-spcd-KL.log
+# srun --partition=xr_research --mpi=pmi2 --gres=gpu:1 -n 1 --ntasks-per-node=1 --job-name=office4-prior --kill-on-bad-exit=1 python -W ignore run.py configs/Replica/office4gt-spcd-KL.yaml >log/office4gt-spcd-KL.log
 
 # srun --partition=xr_research --mpi=pmi2 --gres=gpu:1 -n 1 --ntasks-per-node=1 --job-name=room0-prior --kill-on-bad-exit=1 python -W ignore run.py configs/Replica/room0gt-spcd-KL.yaml >log/room0gt-spcd-KL.log
 
 # srun --partition=xr_research --mpi=pmi2 --gres=gpu:1 -n 1 --ntasks-per-node=1 --job-name=room1-prior --kill-on-bad-exit=1 python -W ignore run.py configs/Replica/room1gt-spcd-KL.yaml >log/room1gt-spcd-KL.log
 
 # srun --partition=xr_research --mpi=pmi2 --gres=gpu:1 -n 1 --ntasks-per-node=1 --job-name=room2-prior --kill-on-bad-exit=1 python -W ignore run.py configs/Replica/room2gt-spcd-KL.yaml >log/room2gt-spcd-KL.log
+
+srun --partition=xr_research --mpi=pmi2 --gres=gpu:1 -n 1 --ntasks-per-node=1 --job-name=fixorb-office4 --kill-on-bad-exit=1 python -W ignore run.py configs/Replica/office4orb.yaml >log/office4orbfix.log
+srun --partition=xr_research --mpi=pmi2 --gres=gpu:1 -n 1 --ntasks-per-node=1 --job-name=fixorb-office4-prior --kill-on-bad-exit=1 python -W ignore run.py configs/Replica/office4orb-spcd-KL.yaml >log/office4orbfix-spcd-KL.log
