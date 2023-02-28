@@ -1,4 +1,7 @@
 dataset: 'tumrgbd'
+coarse: False # False True
+rgbonly: True # 增加选项 是否为单目模式 即无depth loss
+guidesample: False # 增加选项 测试深度引导对在线的作用 False 默认  
 grid_len:
   coarse: 2 
   middle: 0.16
@@ -17,17 +20,22 @@ tracking:
   pixels: 5000
   iters: 200
 mapping:
-  every_frame: 1
+  every_frame: 5 # 1 5
   vis_freq: 50
   vis_inside_freq: 25
   mesh_freq: 50
   ckpt_freq: 500
   keyframe_every: 50
   mapping_window_size: 5
-  pixels: 5000
+  pixels: 1000 # 5000| 1000
   iters_first: 1500
-  iters: 300
-
+  iters: 60 # 300 60
+rendering:
+  N_samples: 48
+  N_surface: 0
+  N_importance: 48
+  lindisp: False
+  perturb: 0.0
 cam:  #NOTE: intrinsic is different per scene in TUM
   H: 480 
   W: 640 

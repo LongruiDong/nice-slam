@@ -1,4 +1,7 @@
 dataset: 'tumrgbd'
+coarse: False # False True
+rgbonly: True # 增加选项 是否为单目模式 即无depth loss
+guidesample: False # 增加选项 测试深度引导对在线的作用 False 默认  
 grid_len: #对于outdoor该如何设
   coarse: 2 
   middle: 0.16
@@ -17,7 +20,7 @@ tracking:
   pixels: 5000
   iters: 200
 mapping:
-  every_frame: 1 #? mapping的频率
+  every_frame: 5 # 1 5
   vis_freq: 50
   vis_inside_freq: 25
   mesh_freq: 50
@@ -27,7 +30,17 @@ mapping:
   pixels: 5000 #被用来优化的图像上的像素数吧
   iters_first: 1500
   iters: 60
-
+  middle_iter_ratio: -1. # 0.4 # rgbonly时 只有color stage
+  fine_iter_ratio: -1. # 0.6
+  save_selected_keyframes_info: True
+  frustum_feature_selection: False # rgb only时 只能如此 下同
+  keyframe_selection_method: 'global'
+rendering:
+  N_samples: 32 #N_strat
+  N_surface: 0 #在深度周围
+  N_importance: 16 #为啥是0 nerf里是有这一步 hirecial 采样吧
+  lindisp: False
+  perturb: 0.0
 cam:  #NOTE: intrinsic is different per scene in TUM
   H: 480 
   W: 640 
