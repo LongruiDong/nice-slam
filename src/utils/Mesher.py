@@ -255,7 +255,8 @@ class Mesher(object):
                 (color * 255).astype(np.uint8)))
 
             intrinsic = o3d.camera.PinholeCameraIntrinsic(W, H, fx, fy, cx, cy)
-            rgbd = o3d.geometry.RGBDImage.create_from_color_and_depth(
+            rgbd = o3d.geometry.create_rgbd_image_from_color_and_depth(  # o3d.geometry.RGBDImage.create_from_color_and_depth(
+		# https://github.com/isl-org/Open3D/issues/1024#issuecomment-515235233
                 color,
                 depth,
                 depth_scale=1,
@@ -267,8 +268,10 @@ class Mesher(object):
         mesh = volume.extract_triangle_mesh()
         mesh_points = np.array(mesh.vertices)
         points = np.concatenate([cam_points, mesh_points], axis=0)
-        o3d_pc = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points))
-        mesh, _ = o3d_pc.compute_convex_hull()
+        o3d_pc = o3d.geometry.PointCloud()
+        o3d_pc.points = o3d.utility.Vector3dVector(points)
+        # o3d_pc = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points))
+        mesh = o3d.geometry.compute_point_cloud_convex_hull(o3d_pc) #  , _  o3d_pc.compute_convex_hull()
         mesh.compute_vertex_normals()
         if version.parse(o3d.__version__) >= version.parse('0.13.0'):
             mesh = mesh.scale(self.clean_mesh_bound_scale, mesh.get_center())
@@ -528,9 +531,12 @@ class Mesher(object):
                     # for imap*
                     # render out the color of the ray along vertex normal, and assign it to vertex color
                     import open3d as o3d
-                    mesh = o3d.geometry.TriangleMesh(
-                        vertices=o3d.utility.Vector3dVector(vertices),
-                        triangles=o3d.utility.Vector3iVector(faces))
+                    mesh = o3d.geometry.TriangleMesh()
+                    mesh.vertices = o3d.utility.Vector3dVector(vertices)
+                    mesh.triangles = o3d.utility.Vector3iVector(faces)
+                    # mesh = o3d.geometry.TriangleMesh(
+                    #     vertices=o3d.utility.Vector3dVector(vertices),
+                    #     triangles=o3d.utility.Vector3iVector(faces))
                     mesh.compute_vertex_normals()
                     vertex_normals = np.asarray(mesh.vertex_normals)
                     rays_d = torch.from_numpy(vertex_normals).to(device)

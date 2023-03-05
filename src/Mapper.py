@@ -451,7 +451,7 @@ class Mapper(object):
                     idx, joint_iter, cur_gt_depth, cur_gt_color, cur_c2w, self.c, self.decoders,
                     selecti=self.slecti, selectj=self.slectj)
             if (joint_iter % self.visualizer.inside_freq == 0) and (joint_iter>0): # (idx % self.visualizer.freq == 0) and 
-                print(f'[{self.stage}] Fid {idx:d} -- {joint_iter:d}, Re-rendering loss: {initial_loss:.2f}->{loss:.2f} ')
+                print(f'[{self.stage}] Fid {idx:d} -- {joint_iter:d}, Re-rendering loss: {initial_loss:.2f}->{loss:.2f}, regulation_loss: {regulation_loss:.2f} ')
             optimizer.zero_grad() #梯度归零
             batch_rays_d_list = []
             batch_rays_o_list = []
@@ -542,6 +542,7 @@ class Mapper(object):
 
             # for imap*, it uses volume density 但当没有深度时 也不能使用
             regulation = (not self.occupancy) and (not self.rgbonly)
+            regulation_loss = 0.
             if regulation:
                 point_sigma = self.renderer.regulation(
                     c, self.decoders, batch_rays_d, batch_rays_o, batch_gt_depth, device, self.stage)
@@ -567,6 +568,7 @@ class Mapper(object):
                         c[key] = val
             if joint_iter==0:
                 initial_loss = loss
+                init_regulation_loss = regulation_loss
             
             # 更新 全局 mapping step regnerf 但其实 coarse mapping 没用到weight decay
             self.gmstep += 1
@@ -712,3 +714,4 @@ class Mapper(object):
 
             if idx == self.n_img-1:
                 break
+

@@ -12,7 +12,7 @@ tracking:
   const_speed_assumption: True
   lr: 0.0005
   pixels: 5000
-  iters: 50
+  iters: 10 # 50 |
 mapping:
   every_frame: 5
   vis_freq: 50 # 每50帧有可视化
@@ -23,7 +23,7 @@ mapping:
   mapping_window_size: 5
   pixels: 5000
   iters_first: 1500
-  iters: 300
+  iters: 60 # 300|
 cam:
   H: 680
   W: 1200
