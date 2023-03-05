@@ -141,7 +141,7 @@ output-reg
 output_imap-reg
 *.out
 *.jpg
-*.png
+# *.png
 triangulation
 tridebug
 tridebug1
